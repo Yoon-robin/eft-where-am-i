@@ -394,7 +394,20 @@ namespace eft_where_am_i.Classes
             {
                 // 접근 코드를 쓰지 않는 경우: /  ->  페이지,  /frame.jpg  ->  화면
                 TouchClient();
-                resource = segments.Length > 0 ? segments[0].ToLowerInvariant() : string.Empty;
+
+                string first = segments.Length > 0 ? segments[0].ToLowerInvariant() : string.Empty;
+
+                if (KnownResources.Contains(first))
+                {
+                    resource = first;
+                }
+                else
+                {
+                    // 예전에 접근 코드를 쓰던 주소(/코드/, /코드/frame.jpg)로 들어온 경우입니다.
+                    // 폰 브라우저는 옛 주소를 계속 자동완성하므로 404 대신 그냥 받아줍니다.
+                    resource = segments.Length > 1 ? segments[1].ToLowerInvariant() : string.Empty;
+                }
+
                 await ServeResourceAsync(stream, resource, token);
                 return;
             }
@@ -430,6 +443,10 @@ namespace eft_where_am_i.Classes
             resource = segments.Length > 1 ? segments[1].ToLowerInvariant() : string.Empty;
             await ServeResourceAsync(stream, resource, token);
         }
+
+        /// <summary>서버가 실제로 제공하는 경로. 그 외 첫 세그먼트는 접근 코드로 간주합니다.</summary>
+        private static readonly HashSet<string> KnownResources =
+            new HashSet<string>(StringComparer.Ordinal) { "", "frame.jpg", "status", "favicon.ico" };
 
         private async Task ServeResourceAsync(NetworkStream stream, string resource, CancellationToken token)
         {
