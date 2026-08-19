@@ -65,5 +65,9 @@
   "radarPortText": "Port",
   "radarHelpText": "View the map on your phone over the same network. Windows Firewall will ask for permission the first time.",
   "radarRegenerateButton": "New access code",
-  "radarRequireCodeLabel": "Require access code"
+  "radarRequireCodeLabel": "Require access code",
+  "serverLocation_PortText": "Port : ",
+  "serverLocation_ColPort": "Port",
+  "serverLocation_BtnCopy": "Copy",
+  "serverLocation_Copied": "Copied"
 }

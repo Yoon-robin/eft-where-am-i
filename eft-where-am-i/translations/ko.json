@@ -65,5 +65,9 @@
   "radarPortText": "포트",
   "radarHelpText": "같은 네트워크에 있는 휴대폰에서 맵을 볼 수 있습니다. 접근 코드를 끄면 IP 주소로 바로 들어갑니다.",
   "radarRegenerateButton": "접근 코드 재발급",
-  "radarRequireCodeLabel": "접근 코드 사용"
+  "radarRequireCodeLabel": "접근 코드 사용",
+  "serverLocation_PortText": "포트 : ",
+  "serverLocation_ColPort": "포트",
+  "serverLocation_BtnCopy": "복사",
+  "serverLocation_Copied": "복사됨"
 }

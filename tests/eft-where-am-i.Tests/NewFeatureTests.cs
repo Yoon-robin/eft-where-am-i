@@ -148,3 +148,48 @@ public class ScanCodeTests
         Assert.NotEqual(0, AutoScreenshotService.GetScanCode(key));
     }
 }
+
+public class ServerLogParserTests
+{
+    // 실제 EFT 로그에서 가져온 줄
+    private const string RealLine =
+        "2026-08-19 12:06:37.314|1.1.0.1.46777|Debug|application|TRACE-NetworkGameCreate profileStatus: " +
+        "'Profileid: 6a71f67e4688d598a00b1791, Status: Busy, RaidMode: Online, Ip: 173.201.39.97, " +
+        "Port: 17005, Location: factory4_day, Sid: US-STL01G118_x_19.08.26_05-58-19, " +
+        "GameMode: deathmatch, shortId: DRQ8PH'";
+
+    [Fact]
+    public void 실제_로그_줄에서_IP_와_포트를_읽는다()
+    {
+        var endpoint = ServerLogParser.ParseLine(RealLine);
+
+        Assert.True(endpoint.HasIp);
+        Assert.Equal("173.201.39.97", endpoint.Ip);
+        Assert.Equal("17005", endpoint.Port);
+    }
+
+    [Fact]
+    public void 포트가_없으면_IP_만_읽는다()
+    {
+        var endpoint = ServerLogParser.ParseLine("Status: Busy, Ip: 10.0.0.5, Location: bigmap");
+
+        Assert.Equal("10.0.0.5", endpoint.Ip);
+        Assert.False(endpoint.HasPort);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("아무 관계 없는 로그 줄")]
+    [InlineData("Ip: not.an.ip.address")]
+    public void 해당_없는_줄은_비어_있다(string line)
+    {
+        Assert.False(ServerLogParser.ParseLine(line).HasIp);
+    }
+
+    [Fact]
+    public void 포트는_5자리까지_읽는다()
+    {
+        Assert.Equal("65535", ServerLogParser.ParseLine("Ip: 1.2.3.4, Port: 65535,").Port);
+    }
+}

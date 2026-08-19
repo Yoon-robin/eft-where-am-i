@@ -33,13 +33,13 @@ namespace eft_where_am_i
         // IP 별 위치 정보를 저장하는 캐시 (앱 구동 중 유지)
         private readonly Dictionary<string, GeoInfo> _geoCache = new Dictionary<string, GeoInfo>();
 
-        // 로그 파일별 IP 파싱 결과 캐시. 파일이 바뀌지 않았으면 다시 스캔하지 않습니다.
-        private readonly Dictionary<string, (long length, DateTime lastWrite, string ip)> _logIpCache =
-            new Dictionary<string, (long, DateTime, string)>(StringComparer.OrdinalIgnoreCase);
+        // 로그 파일별 파싱 결과 캐시. 파일이 바뀌지 않았으면 다시 스캔하지 않습니다.
+        private readonly Dictionary<string, (long length, DateTime lastWrite, ServerEndpoint endpoint)> _logIpCache =
+            new Dictionary<string, (long, DateTime, ServerEndpoint)>(StringComparer.OrdinalIgnoreCase);
 
-        // 매 줄마다 Regex 를 새로 만들지 않도록 컴파일된 정적 인스턴스를 씁니다.
-        private static readonly Regex IpRegex = new Regex(
-            @"Ip:\s?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})", RegexOptions.Compiled);
+        // 복사 버튼이 쓰는 현재 값
+        private string _currentIp;
+        private string _currentPort;
 
         // WebClient 는 폐기된 API 라 HttpClient 로 교체했습니다.
         // ip-api.com 무료 플랜은 HTTPS 를 지원하지 않아 http 를 씁니다.
@@ -121,6 +121,9 @@ namespace eft_where_am_i
             colCheck.Text = GetString("serverLocation_BtnCheck", colCheck.Text);
             colDate.HeaderText = GetString("serverLocation_ColDate", colDate.HeaderText);
             colIp.HeaderText = GetString("serverLocation_ColIp", colIp.HeaderText);
+            colPort.HeaderText = GetString("serverLocation_ColPort", colPort.HeaderText);
+            btnCopyIp.Text = GetString("serverLocation_BtnCopy", btnCopyIp.Text);
+            btnCopyPort.Text = GetString("serverLocation_BtnCopy", btnCopyPort.Text);
             colCity.HeaderText = GetString("serverLocation_ColCity", colCity.HeaderText);
             colFolder.HeaderText = GetString("serverLocation_ColFolder", colFolder.HeaderText);
 
@@ -176,6 +179,9 @@ namespace eft_where_am_i
             labelCityName.ForeColor = foreground;
 
             AppTheme.StyleButton(btnFindLatest, primary: true);
+            AppTheme.StyleButton(btnCopyIp);
+            AppTheme.StyleButton(btnCopyPort);
+            labelPortNumber.ForeColor = foreground;
 
             dataGridViewHistory.BackgroundColor = surface;
             dataGridViewHistory.BorderStyle = BorderStyle.None;
@@ -248,11 +254,17 @@ namespace eft_where_am_i
                             .FirstOrDefault();
 
                         string ip = OFFLINE_MSG;
+                        string port = "";
                         string cityVal = "";
 
                         if (latestFile != null)
                         {
-                            ip = GetMatchedIpAddress(latestFile.FullName) ?? OFFLINE_MSG;
+                            var endpoint = GetMatchedEndpoint(latestFile.FullName);
+                            if (endpoint.HasIp)
+                            {
+                                ip = endpoint.Ip;
+                                port = endpoint.Port ?? "";
+                            }
                         }
 
                         // 캐시에 있는 경우 도시명 바로 주입
@@ -266,6 +278,7 @@ namespace eft_where_am_i
                             checkLabel,
                             dir.CreationTime.ToString("yyyy-MM-dd HH:mm:ss"),
                             ip,
+                            port,
                             cityVal,
                             dir.Name
                         });
@@ -284,6 +297,7 @@ namespace eft_where_am_i
                     var firstRow = dataGridViewHistory.Rows[0];
                     string latestIp = firstRow.Cells["colIp"].Value?.ToString();
                     string folderName = firstRow.Cells["colFolder"].Value?.ToString();
+                    ApplyPort(firstRow.Cells["colPort"].Value?.ToString());
 
                     lblCurrentLogFile.Text = GetString("serverLocation_CurrentLog", "선택된 로그: ") + $"{folderName} (*application*.log)";
 
@@ -291,6 +305,8 @@ namespace eft_where_am_i
                     {
                         ClearGeoLocationLabels();
                         labelIpAddress.Text = GetString("serverLocation_IpText", "IP 주소 : ") + OFFLINE_MSG;
+                        _currentIp = null;
+                        btnCopyIp.Enabled = false;
                         labelCountryName.Text = GetString("serverLocation_OfflineInfo", "해당 세션은 오프라인 게임이거나 아직 서버가 잡히지 않았습니다.");
                     }
                     else
@@ -310,7 +326,7 @@ namespace eft_where_am_i
         /// 파일 크기와 수정 시각이 그대로면 이전 결과를 재사용합니다.
         /// (갱신할 때마다 로그 폴더 전체를 처음부터 다시 스캔하던 문제)
         /// </summary>
-        private string GetMatchedIpAddress(string logFilePath)
+        private ServerEndpoint GetMatchedEndpoint(string logFilePath)
         {
             try
             {
@@ -322,11 +338,11 @@ namespace eft_where_am_i
                         && cached.length == info.Length
                         && cached.lastWrite == info.LastWriteTimeUtc)
                     {
-                        return cached.ip;
+                        return cached.endpoint;
                     }
                 }
 
-                string matchedIpAddress = null;
+                var matched = ServerEndpoint.None;
 
                 using (var fileStream = new FileStream(logFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
                 using (var reader = new StreamReader(fileStream))
@@ -334,25 +350,26 @@ namespace eft_where_am_i
                     string line;
                     while ((line = reader.ReadLine()) != null)
                     {
-                        Match match = IpRegex.Match(line);
-                        if (match.Success)
+                        var parsed = ServerLogParser.ParseLine(line);
+                        if (parsed.HasIp)
                         {
-                            matchedIpAddress = match.Groups[1].Value;
+                            // 마지막으로 매칭된 값이 이 세션의 최종 서버입니다.
+                            matched = parsed;
                         }
                     }
                 }
 
                 lock (_logIpCache)
                 {
-                    _logIpCache[logFilePath] = (info.Length, info.LastWriteTimeUtc, matchedIpAddress);
+                    _logIpCache[logFilePath] = (info.Length, info.LastWriteTimeUtc, matched);
                 }
 
-                return matchedIpAddress;
+                return matched;
             }
             catch (Exception ex)
             {
-                AppLogger.Debug("ServerLocation", $"로그 IP 파싱 실패 ({Path.GetFileName(logFilePath)}): {ex.Message}");
-                return null;
+                AppLogger.Debug("ServerLocation", $"로그 파싱 실패 ({Path.GetFileName(logFilePath)}): {ex.Message}");
+                return ServerEndpoint.None;
             }
         }
 
@@ -363,6 +380,7 @@ namespace eft_where_am_i
                 var row = dataGridViewHistory.Rows[e.RowIndex];
                 string ip = row.Cells["colIp"].Value?.ToString();
                 string folderName = row.Cells["colFolder"].Value?.ToString();
+                ApplyPort(row.Cells["colPort"].Value?.ToString());
 
                 lblCurrentLogFile.Text = GetString("serverLocation_CurrentLog", "선택된 로그: ") + $"{folderName} (*application*.log)";
 
@@ -380,9 +398,58 @@ namespace eft_where_am_i
             }
         }
 
+        /// <summary>포트 라벨과 복사 버튼 상태를 갱신합니다.</summary>
+        private void ApplyPort(string port)
+        {
+            _currentPort = string.IsNullOrWhiteSpace(port) ? null : port.Trim();
+
+            labelPortNumber.Text = GetString("serverLocation_PortText", "포트 : ")
+                + (_currentPort ?? "-");
+            btnCopyPort.Enabled = _currentPort != null;
+        }
+
+        private void btnCopyIp_Click(object sender, EventArgs e)
+        {
+            CopyToClipboard(_currentIp, btnCopyIp);
+        }
+
+        private void btnCopyPort_Click(object sender, EventArgs e)
+        {
+            CopyToClipboard(_currentPort, btnCopyPort);
+        }
+
+        /// <summary>값을 클립보드에 넣고 버튼에 잠깐 피드백을 보여줍니다.</summary>
+        private async void CopyToClipboard(string value, Button button)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return;
+
+            try
+            {
+                Clipboard.SetText(value);
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Warn("ServerLocation", $"클립보드 복사 실패: {ex.Message}");
+                return;
+            }
+
+            string original = GetString("serverLocation_BtnCopy", "복사");
+            button.Text = GetString("serverLocation_Copied", "복사됨");
+            button.Enabled = false;
+
+            await Task.Delay(1200);
+
+            if (!IsDisposed && !button.IsDisposed)
+            {
+                button.Text = original;
+                button.Enabled = true;
+            }
+        }
+
         private void ClearGeoLocationLabels()
         {
             labelIpAddress.Text = GetString("serverLocation_IpText", "IP 주소 : ");
+            labelPortNumber.Text = GetString("serverLocation_PortText", "포트 : ");
             labelCountryName.Text = GetString("serverLocation_CountryText", "국가 : ");
             labelRegionName.Text = GetString("serverLocation_RegionText", "지역 : ");
             labelCityName.Text = GetString("serverLocation_CityText", "도시 : ");
@@ -393,6 +460,8 @@ namespace eft_where_am_i
             try
             {
                 labelIpAddress.Text = GetString("serverLocation_IpText", "IP 주소 : ") + ipAddress;
+                _currentIp = ipAddress;
+                btnCopyIp.Enabled = true;
 
                 if (!IPAddress.TryParse(ipAddress, out _))
                 {

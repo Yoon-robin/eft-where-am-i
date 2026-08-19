@@ -1,4 +1,4 @@
-// Auto-generated layout code for ServerLocation UI
+﻿// Auto-generated layout code for ServerLocation UI
 namespace eft_where_am_i
 {
     partial class ServerLocation
@@ -24,11 +24,15 @@ namespace eft_where_am_i
             this.labelRegionName = new System.Windows.Forms.Label();
             this.labelCountryName = new System.Windows.Forms.Label();
             this.labelIpAddress = new System.Windows.Forms.Label();
+            this.labelPortNumber = new System.Windows.Forms.Label();
+            this.btnCopyIp = new System.Windows.Forms.Button();
+            this.btnCopyPort = new System.Windows.Forms.Button();
             this.lblHistory = new System.Windows.Forms.Label();
             this.dataGridViewHistory = new System.Windows.Forms.DataGridView();
             this.colCheck = new System.Windows.Forms.DataGridViewButtonColumn();
             this.colDate = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.colIp = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this.colPort = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.colCity = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this.colFolder = new System.Windows.Forms.DataGridViewTextBoxColumn();
             
@@ -91,10 +95,13 @@ namespace eft_where_am_i
             this.groupBox1.Controls.Add(this.labelRegionName);
             this.groupBox1.Controls.Add(this.labelCountryName);
             this.groupBox1.Controls.Add(this.labelIpAddress);
+            this.groupBox1.Controls.Add(this.labelPortNumber);
+            this.groupBox1.Controls.Add(this.btnCopyIp);
+            this.groupBox1.Controls.Add(this.btnCopyPort);
             this.groupBox1.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.groupBox1.Location = new System.Drawing.Point(20, 100);
             this.groupBox1.Name = "groupBox1";
-            this.groupBox1.Size = new System.Drawing.Size(400, 130);
+            this.groupBox1.Size = new System.Drawing.Size(460, 170);
             this.groupBox1.TabIndex = 1;
             this.groupBox1.TabStop = false;
             this.groupBox1.Text = "서버 상세 정보";
@@ -108,12 +115,41 @@ namespace eft_where_am_i
             this.labelIpAddress.Size = new System.Drawing.Size(81, 19);
             this.labelIpAddress.TabIndex = 0;
             this.labelIpAddress.Text = "IP Address : ";
+            //
+            // labelPortNumber
+            //
+            this.labelPortNumber.AutoSize = true;
+            this.labelPortNumber.Location = new System.Drawing.Point(20, 52);
+            this.labelPortNumber.Name = "labelPortNumber";
+            this.labelPortNumber.Size = new System.Drawing.Size(60, 19);
+            this.labelPortNumber.TabIndex = 4;
+            this.labelPortNumber.Text = "Port : ";
+            //
+            // btnCopyIp
+            //
+            this.btnCopyIp.Location = new System.Drawing.Point(345, 21);
+            this.btnCopyIp.Name = "btnCopyIp";
+            this.btnCopyIp.Size = new System.Drawing.Size(95, 26);
+            this.btnCopyIp.TabIndex = 5;
+            this.btnCopyIp.Text = "복사";
+            this.btnCopyIp.UseVisualStyleBackColor = true;
+            this.btnCopyIp.Click += new System.EventHandler(this.btnCopyIp_Click);
+            //
+            // btnCopyPort
+            //
+            this.btnCopyPort.Location = new System.Drawing.Point(345, 48);
+            this.btnCopyPort.Name = "btnCopyPort";
+            this.btnCopyPort.Size = new System.Drawing.Size(95, 26);
+            this.btnCopyPort.TabIndex = 6;
+            this.btnCopyPort.Text = "복사";
+            this.btnCopyPort.UseVisualStyleBackColor = true;
+            this.btnCopyPort.Click += new System.EventHandler(this.btnCopyPort_Click);
             
             // 
             // labelCountryName
             // 
             this.labelCountryName.AutoSize = true;
-            this.labelCountryName.Location = new System.Drawing.Point(20, 50);
+            this.labelCountryName.Location = new System.Drawing.Point(20, 84);
             this.labelCountryName.Name = "labelCountryName";
             this.labelCountryName.Size = new System.Drawing.Size(44, 19);
             this.labelCountryName.TabIndex = 1;
@@ -123,7 +159,7 @@ namespace eft_where_am_i
             // labelRegionName
             // 
             this.labelRegionName.AutoSize = true;
-            this.labelRegionName.Location = new System.Drawing.Point(20, 75);
+            this.labelRegionName.Location = new System.Drawing.Point(20, 111);
             this.labelRegionName.Name = "labelRegionName";
             this.labelRegionName.Size = new System.Drawing.Size(44, 19);
             this.labelRegionName.TabIndex = 2;
@@ -133,7 +169,7 @@ namespace eft_where_am_i
             // labelCityName
             // 
             this.labelCityName.AutoSize = true;
-            this.labelCityName.Location = new System.Drawing.Point(20, 100);
+            this.labelCityName.Location = new System.Drawing.Point(20, 138);
             this.labelCityName.Name = "labelCityName";
             this.labelCityName.Size = new System.Drawing.Size(44, 19);
             this.labelCityName.TabIndex = 3;
@@ -163,6 +199,7 @@ namespace eft_where_am_i
             this.colCheck,
             this.colDate,
             this.colIp,
+            this.colPort,
             this.colCity,
             this.colFolder});
             this.dataGridViewHistory.Location = new System.Drawing.Point(20, 40);
@@ -198,6 +235,13 @@ namespace eft_where_am_i
             this.colIp.Name = "colIp";
             this.colIp.ReadOnly = true;
             this.colIp.Width = 120;
+            //
+            // colPort
+            //
+            this.colPort.HeaderText = "포트";
+            this.colPort.Name = "colPort";
+            this.colPort.ReadOnly = true;
+            this.colPort.Width = 70;
             
             // 
             // colCity
@@ -245,11 +289,15 @@ namespace eft_where_am_i
         private System.Windows.Forms.Label labelRegionName;
         private System.Windows.Forms.Label labelCountryName;
         private System.Windows.Forms.Label labelIpAddress;
+        private System.Windows.Forms.Label labelPortNumber;
+        private System.Windows.Forms.Button btnCopyIp;
+        private System.Windows.Forms.Button btnCopyPort;
         private System.Windows.Forms.Label lblHistory;
         private System.Windows.Forms.DataGridView dataGridViewHistory;
         private System.Windows.Forms.DataGridViewButtonColumn colCheck;
         private System.Windows.Forms.DataGridViewTextBoxColumn colDate;
         private System.Windows.Forms.DataGridViewTextBoxColumn colIp;
+        private System.Windows.Forms.DataGridViewTextBoxColumn colPort;
         private System.Windows.Forms.DataGridViewTextBoxColumn colCity;
         private System.Windows.Forms.DataGridViewTextBoxColumn colFolder;
     }
