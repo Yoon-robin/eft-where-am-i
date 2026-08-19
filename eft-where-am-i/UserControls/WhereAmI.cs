@@ -52,7 +52,6 @@ namespace eft_where_am_i
             LoadSettings();                                         // 동기작업
             appSettings ??= settingsHandler.GetSettings();
             ApplyTheme();
-            ApplyTranslations();
             siteUrl = $"https://tarkov-market.com/maps/{appSettings.latest_map}";
 
             // Load 이벤트 핸들러 등록
@@ -108,7 +107,6 @@ namespace eft_where_am_i
             // 화면 갱신 (언어/경로 등 UI 업데이트)
             LoadSettings();
             ApplyTheme();
-            ApplyTranslations();
 
             // 설정 화면에서 바꾼 값을 실행 중인 서비스에 반영합니다.
             if (autoScreenshot != null)
@@ -152,61 +150,6 @@ namespace eft_where_am_i
 
             this.BackColor = AppTheme.Background;
             panel1.BackColor = AppTheme.Background;
-            AppTheme.StyleCheckBox(checkBoxHide);
-        }
-
-        private void ApplyTranslations()
-        {
-            if (InvokeRequired)
-            {
-                BeginInvoke(new Action(ApplyTranslations));
-                return;
-            }
-
-            UpdateFoldButtonText();
-        }
-
-        private void UpdateFoldButtonText()
-        {
-            if (checkBoxHide == null)
-            {
-                return;
-            }
-
-            string key = checkBoxHide.Checked
-                ? "whereAmI_ClickToUnfold"
-                : "whereAmI_ClickToFold";
-
-            string fallback = checkBoxHide.Checked
-                ? "∨ Click to Unfold"
-                : "∧ Click to Fold";
-
-            checkBoxHide.Text = GetString(key, fallback);
-        }
-
-        private string GetString(string key, string fallback)
-        {
-            try
-            {
-                string language = appSettings?.language ?? SettingsHandler.Instance.GetSettings().language;
-                if (string.IsNullOrEmpty(language)) language = "en";
-
-                string jsonPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "translations", $"{language}.json");
-                if (File.Exists(jsonPath))
-                {
-                    string json = File.ReadAllText(jsonPath);
-                    var values = Newtonsoft.Json.JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
-                    if (values != null && values.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value))
-                    {
-                        return value;
-                    }
-                }
-            }
-            catch (Exception)
-            {
-            }
-
-            return fallback;
         }
 
         private async Task InitializeWebViewContent()
@@ -1437,36 +1380,5 @@ namespace eft_where_am_i
             }
         }
 
-        const int MAX_SLIDING_HEIGHT = 138;
-        const int MIN_SLIDING_HEIGHT = 0;
-        const int STEP_SLIDING = 10;
-        int _posSliding = 138;
-
-        private void checkBoxHide_CheckedChanged(object sender, EventArgs e)
-        {
-            UpdateFoldButtonText();
-            timerSliding.Start();
-        }
-
-        private void timerSliding_Tick(object sender, EventArgs e)
-        {
-            if (checkBoxHide.Checked == true)
-            {
-                _posSliding -= STEP_SLIDING;
-                checkBoxHide.Top = _posSliding;
-                if (_posSliding <= MIN_SLIDING_HEIGHT)
-                    timerSliding.Stop();
-            }
-            else
-            {
-                _posSliding += STEP_SLIDING;
-                checkBoxHide.Top = _posSliding;
-                if (_posSliding >= MAX_SLIDING_HEIGHT)
-                    timerSliding.Stop();
-
-            }
-
-            panel1.Height = _posSliding;
-        }
     }
 }

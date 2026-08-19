@@ -72,8 +72,6 @@
             webView2 = new Microsoft.Web.WebView2.WinForms.WebView2();
             panel1 = new Panel();
             webView2_panel_ui = new Microsoft.Web.WebView2.WinForms.WebView2();
-            checkBoxHide = new CheckBox();
-            timerSliding = new System.Windows.Forms.Timer(components);
             ((System.ComponentModel.ISupportInitialize)webView2).BeginInit();
             panel1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)webView2_panel_ui).BeginInit();
@@ -115,32 +113,10 @@
             webView2_panel_ui.TabIndex = 0;
             webView2_panel_ui.ZoomFactor = 1D;
             // 
-            // checkBoxHide
-            // 
-            checkBoxHide.Appearance = Appearance.Button;
-            checkBoxHide.FlatAppearance.BorderSize = 0;
-            checkBoxHide.FlatStyle = FlatStyle.Flat;
-            checkBoxHide.Font = new Font("굴림", 12F, FontStyle.Bold);
-            checkBoxHide.Location = new Point(0, 138);
-            checkBoxHide.Margin = new Padding(3, 4, 3, 4);
-            checkBoxHide.Name = "checkBoxHide";
-            checkBoxHide.Size = new Size(170, 38);
-            checkBoxHide.TabIndex = 23;
-            checkBoxHide.Text = "∧ Click to Fold";
-            checkBoxHide.TextAlign = ContentAlignment.MiddleCenter;
-            checkBoxHide.UseVisualStyleBackColor = true;
-            checkBoxHide.CheckedChanged += checkBoxHide_CheckedChanged;
-            // 
-            // timerSliding
-            // 
-            timerSliding.Interval = 10;
-            timerSliding.Tick += timerSliding_Tick;
-            // 
             // WhereAmI
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            Controls.Add(checkBoxHide);
             Controls.Add(webView2);
             Controls.Add(panel1);
             Margin = new Padding(3, 4, 3, 4);
@@ -156,8 +132,6 @@
         #endregion
         private Microsoft.Web.WebView2.WinForms.WebView2 webView2;
         private System.Windows.Forms.Panel panel1;
-        private System.Windows.Forms.CheckBox checkBoxHide;
-        private System.Windows.Forms.Timer timerSliding;
         private Microsoft.Web.WebView2.WinForms.WebView2 webView2_panel_ui;
     }
 }
