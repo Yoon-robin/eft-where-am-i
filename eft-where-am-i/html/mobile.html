@@ -430,11 +430,20 @@
     }
   }
 
+  // 사용자가 직접 띄운 안내는 이 시각까지 유지합니다.
+  // (프레임이 도착하면 안내를 숨기는데, 그 때문에 바로 사라지던 문제)
+  let manualHintUntil = 0;
+
   function setHint(title, bodyHtml) {
     const t = document.getElementById('hintTitle');
     const b = document.getElementById('hintBody');
     if (t) t.textContent = title;
     if (b) b.innerHTML = bodyHtml;
+  }
+
+  function hideHintIfAllowed() {
+    if (Date.now() < manualHintUntil) return;
+    hint.classList.add('gone');
   }
 
   async function loadFrame() {
@@ -463,7 +472,7 @@
             requestAnimationFrame(fitToScreen);
           }
           hasFirstFrame = true;
-          hint.classList.add('gone');
+          hideHintIfAllowed();
           resolve();
         };
         probe.onerror = reject;
@@ -524,45 +533,129 @@
     abortInFlight();   // 대기 중인 롱폴링을 끊고 새 모드로 즉시 전환
   });
 
-  // 화면 꺼짐 방지 (지원하는 브라우저에서만)
+  // ── 화면 꺼짐 방지 ────────────────────────────
+  //
+  // 브라우저는 화면을 잠글 때, 탭을 벗어날 때, 전화가 올 때 등
+  // 여러 이유로 wake lock 을 알아서 풀어 버립니다. 한 번 잡고 끝내면 안 되고
+  // 풀릴 때마다 다시 잡아야 실제로 화면이 안 꺼집니다.
   const btnWake = document.getElementById('btnWake');
+  const WAKE_PREF_KEY = 'eftwmi.wakeLock';
+
   let wakeLock = null;
+  let wakeSupported = 'wakeLock' in navigator;
+  // 레이더는 계속 보라고 만든 화면이라 기본값을 켜짐으로 둡니다.
+  let wakeDesired = readWakePref();
+  let gestureRetryArmed = false;
 
-  async function toggleWakeLock(e) {
-    if (e) e.stopPropagation();
+  function readWakePref() {
+    try {
+      return localStorage.getItem(WAKE_PREF_KEY) !== 'off';
+    } catch (e) {
+      return true;   // 프라이빗 모드 등에서 localStorage 가 막혀도 기본은 켜짐
+    }
+  }
 
-    if (!('wakeLock' in navigator)) {
-      btnWake.textContent = '미지원';
-      btnWake.disabled = true;
+  function saveWakePref() {
+    try {
+      localStorage.setItem(WAKE_PREF_KEY, wakeDesired ? 'on' : 'off');
+    } catch (e) { /* 저장 못 해도 이번 세션에는 적용됩니다 */ }
+  }
+
+  function syncWakeButton() {
+    if (!wakeSupported) {
+      // 눌렀을 때 OS 설정을 안내할 수 있도록 비활성화하지 않습니다.
+      btnWake.textContent = '화면 유지 ?';
+      btnWake.classList.remove('on');
       return;
     }
 
+    btnWake.textContent = '화면 유지';
+    btnWake.classList.toggle('on', wakeDesired && !!wakeLock);
+
+    // 켜기로 했는데 아직 못 잡은 상태를 구분해서 보여줍니다.
+    if (wakeDesired && !wakeLock) btnWake.textContent = '화면 유지 대기';
+  }
+
+  async function acquireWakeLock() {
+    if (!wakeDesired || !wakeSupported) return;
+    if (wakeLock) return;
+    if (document.visibilityState !== 'visible') return;
+
     try {
-      if (wakeLock) {
-        await wakeLock.release();
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', function () {
+        // 브라우저가 풀었을 뿐이므로, 원하는 상태라면 곧바로 다시 잡습니다.
         wakeLock = null;
-        btnWake.classList.remove('on');
-      } else {
-        wakeLock = await navigator.wakeLock.request('screen');
-        wakeLock.addEventListener('release', function () {
-          wakeLock = null;
-          btnWake.classList.remove('on');
-        });
-        btnWake.classList.add('on');
-      }
+        syncWakeButton();
+        acquireWakeLock();
+      });
+      syncWakeButton();
     } catch (err) {
-      btnWake.textContent = '실패';
+      wakeLock = null;
+      syncWakeButton();
+      // 사용자 조작 없이는 거절하는 브라우저가 있어, 첫 터치에 한 번 더 시도합니다.
+      armGestureRetry();
     }
   }
-  btnWake.addEventListener('click', toggleWakeLock);
+
+  async function releaseWakeLock() {
+    if (!wakeLock) return;
+    try { await wakeLock.release(); } catch (e) { /* 이미 풀렸으면 무시 */ }
+    wakeLock = null;
+  }
+
+  function armGestureRetry() {
+    if (gestureRetryArmed) return;
+    gestureRetryArmed = true;
+
+    const retry = function () {
+      document.removeEventListener('pointerdown', retry, true);
+      gestureRetryArmed = false;
+      acquireWakeLock();
+    };
+    document.addEventListener('pointerdown', retry, true);
+  }
+
+  btnWake.addEventListener('click', async function (e) {
+    e.stopPropagation();
+
+    // 브라우저가 이 기능을 지원하지 않으면 폰 설정에서 꺼야 합니다.
+    if (!wakeSupported) {
+      setHint('이 브라우저는 화면 유지를 지원하지 않습니다',
+              'iPhone: 설정 → 디스플레이 및 밝기 → 자동 잠금 → 안 함<br>' +
+              'Android: 설정 → 디스플레이 → 화면 자동 꺼짐 시간<br><br>' +
+              '(iOS는 16.4 이상, Chrome은 최신 버전에서 자동으로 유지됩니다)');
+      manualHintUntil = Date.now() + 6000;
+      hint.classList.remove('gone');
+      setTimeout(function () { if (hasFirstFrame) hint.classList.add('gone'); }, 6000);
+      return;
+    }
+
+    wakeDesired = !wakeDesired;
+    saveWakePref();
+
+    if (wakeDesired) await acquireWakeLock();
+    else await releaseWakeLock();
+
+    syncWakeButton();
+  });
 
   // 탭이 다시 보이면 wake lock 을 복구합니다 (브라우저가 자동 해제하므로)
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') {
-      if (btnWake.classList.contains('on') && !wakeLock) toggleWakeLock();
+      acquireWakeLock();
       abortInFlight();   // 백그라운드에서 멈춰 있던 대기를 끊고 곧바로 다시 확인
     }
   });
+
+  window.addEventListener('focus', acquireWakeLock);
+  window.addEventListener('pageshow', acquireWakeLock);
+
+  // 위 이벤트가 하나도 안 오는 경우를 대비한 안전망
+  setInterval(acquireWakeLock, 15000);
+
+  syncWakeButton();
+  acquireWakeLock();
 
   const btnFull = document.getElementById('btnFull');
   btnFull.addEventListener('click', function (e) {
