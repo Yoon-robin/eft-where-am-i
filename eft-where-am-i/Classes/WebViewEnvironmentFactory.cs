@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Web.WebView2.Core;
@@ -28,6 +28,22 @@ namespace eft_where_am_i.Classes
             "WebView2");
 
         /// <summary>
+        /// 창이 최소화되거나 가려져도 화면을 계속 그리게 하는 브라우저 인자.
+        ///
+        /// Chromium 은 창이 가려졌다고 판단하면 렌더링을 멈춥니다. 평소에는 좋은 최적화지만,
+        /// 이 앱은 창을 내려둔 채 게임을 하면서 그 화면을 폰으로 보내야 합니다.
+        /// 그대로 두면 최소화하는 순간부터 폰에 같은 화면만 계속 나갑니다.
+        ///
+        /// CalculateNativeWinOcclusion 이 최소화 창을 가려진 것으로 처리하는 핵심 기능이고,
+        /// 나머지는 백그라운드 상태에서의 타이머/렌더러 스로틀링을 막습니다.
+        /// </summary>
+        private const string KeepRenderingArguments =
+            "--disable-features=CalculateNativeWinOcclusion " +
+            "--disable-backgrounding-occluded-windows " +
+            "--disable-renderer-backgrounding " +
+            "--disable-background-timer-throttling";
+
+        /// <summary>
         /// 지정한 프로필용 WebView2 환경을 만듭니다.
         ///
         /// 고정 폴더는 프로세스 하나만 점유할 수 있으므로, 앱을 두 개 띄우는 등으로
@@ -36,11 +52,15 @@ namespace eft_where_am_i.Classes
         public static async Task<CoreWebView2Environment> CreateAsync(string profileName)
         {
             string stablePath = Path.Combine(ProfileRoot, profileName);
+            var options = new CoreWebView2EnvironmentOptions
+            {
+                AdditionalBrowserArguments = KeepRenderingArguments,
+            };
 
             try
             {
                 Directory.CreateDirectory(stablePath);
-                return await CoreWebView2Environment.CreateAsync(null, stablePath);
+                return await CoreWebView2Environment.CreateAsync(null, stablePath, options);
             }
             catch (Exception ex)
             {
@@ -49,7 +69,7 @@ namespace eft_where_am_i.Classes
 
                 string fallbackPath = Path.Combine(ProfileRoot, "_transient", $"{profileName}-{Guid.NewGuid():N}");
                 Directory.CreateDirectory(fallbackPath);
-                return await CoreWebView2Environment.CreateAsync(null, fallbackPath);
+                return await CoreWebView2Environment.CreateAsync(null, fallbackPath, options);
             }
         }
 

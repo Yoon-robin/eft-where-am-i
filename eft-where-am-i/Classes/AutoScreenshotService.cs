@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -111,7 +112,11 @@ namespace eft_where_am_i.Classes
                 // 게임이 활성 상태가 아니면 키를 보내지 않습니다.
                 // SendInput 은 포그라운드 창으로 가기 때문에, 이 확인이 없으면
                 // 다른 프로그램에 엉뚱한 키가 들어갑니다.
-                if (!IsGameForeground()) return;
+                if (!IsGameForeground())
+                {
+                    LogSkipOccasionally();
+                    return;
+                }
 
                 SendKey(ScreenshotKey);
                 ScreenshotKeySent?.Invoke();
@@ -119,6 +124,41 @@ namespace eft_where_am_i.Classes
             catch (Exception ex)
             {
                 AppLogger.Error("AutoScreenshot", $"키 전송 실패: {ex.Message}");
+            }
+        }
+
+        private DateTime _lastSkipLogUtc = DateTime.MinValue;
+
+        /// <summary>
+        /// 게임이 앞에 없어서 건너뛸 때, 어떤 창이 앞에 있었는지 가끔 기록합니다.
+        /// "자동 촬영이 안 된다" 는 제보가 들어왔을 때 원인을 가르는 단서가 됩니다.
+        /// </summary>
+        private void LogSkipOccasionally()
+        {
+            var now = DateTime.UtcNow;
+            if (now - _lastSkipLogUtc < TimeSpan.FromSeconds(30)) return;
+            _lastSkipLogUtc = now;
+
+            AppLogger.Debug("AutoScreenshot",
+                $"게임이 활성 상태가 아니라 건너뜁니다. 현재 앞에 있는 창: {GetForegroundProcessName() ?? "(알 수 없음)"}");
+        }
+
+        private static string GetForegroundProcessName()
+        {
+            try
+            {
+                IntPtr hwnd = GetForegroundWindow();
+                if (hwnd == IntPtr.Zero) return null;
+
+                GetWindowThreadProcessId(hwnd, out uint pid);
+                if (pid == 0) return null;
+
+                using var process = Process.GetProcessById((int)pid);
+                return process.ProcessName;
+            }
+            catch
+            {
+                return null;
             }
         }
 
@@ -142,13 +182,35 @@ namespace eft_where_am_i.Classes
         }
 
         /// <summary>
+        /// MapVirtualKey 가 실제 키보드와 다른 스캔코드를 주는 키들.
+        ///
+        /// PrintScreen 이 대표적입니다. MapVirtualKey 는 0x54(SysRq)를 돌려주는데
+        /// 실제 키보드는 E0 37 을 보냅니다. 0x54 로 주입하면 키가 아예 먹지 않습니다.
+        /// (클립보드 캡처 여부로 확인함: 0x54 → 반응 없음, 0x37 → 정상 동작)
+        /// </summary>
+        private static readonly Dictionary<Keys, ushort> ScanCodeOverrides = new Dictionary<Keys, ushort>
+        {
+            { Keys.PrintScreen, 0x37 },
+        };
+
+        /// <summary>
+        /// 주입에 사용할 스캔코드를 구합니다. 보정 표에 있으면 그 값을, 없으면 MapVirtualKey 결과를 씁니다.
+        /// </summary>
+        public static ushort GetScanCode(Keys key)
+        {
+            return ScanCodeOverrides.TryGetValue(key, out ushort scan)
+                ? scan
+                : (ushort)MapVirtualKey((ushort)key, MAPVK_VK_TO_VSC);
+        }
+
+        /// <summary>
         /// 스캔코드 기반으로 키 입력을 주입합니다.
         /// 게임(특히 Unity)은 가상 키코드보다 스캔코드를 더 안정적으로 인식합니다.
         /// </summary>
         private static void SendKey(Keys key)
         {
             ushort vk = (ushort)key;
-            ushort scan = (ushort)MapVirtualKey(vk, MAPVK_VK_TO_VSC);
+            ushort scan = GetScanCode(key);
 
             // PrintScreen 을 비롯한 일부 키는 확장 키 플래그가 필요합니다.
             uint extended = IsExtendedKey(key) ? KEYEVENTF_EXTENDEDKEY : 0u;
@@ -164,7 +226,11 @@ namespace eft_where_am_i.Classes
             {
                 AppLogger.Warn("AutoScreenshot",
                     $"SendInput 이 일부만 전송했습니다 ({sent}/{inputs.Length}). Win32 오류 {Marshal.GetLastWin32Error()}");
+                return;
             }
+
+            AppLogger.Debug("AutoScreenshot",
+                $"{key} 전송 (scan=0x{scan:X2}{(extended != 0 ? ", extended" : "")})");
         }
 
         private static bool IsExtendedKey(Keys key)

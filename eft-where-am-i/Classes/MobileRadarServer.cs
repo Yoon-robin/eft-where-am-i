@@ -159,11 +159,20 @@ namespace eft_where_am_i.Classes
             string output = process.StandardOutput.ReadToEnd();
             if (!process.WaitForExit(8000)) return true;
 
-            // 규칙 블록 단위로 끊어서, 허용(Allow)이면서 해당 포트를 담은 블록을 찾습니다.
+            // 규칙 블록 단위로 끊어서 확인합니다.
+            // 포트로 등록된 규칙뿐 아니라, Windows 허용 팝업이 만드는 "프로그램" 규칙도 봐야 합니다.
+            // (프로그램 규칙에는 포트 번호가 없어서 포트만 찾으면 멀쩡한데도 경고가 나갑니다)
             string portToken = port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+            string exeName = string.IsNullOrEmpty(exePath) ? null : Path.GetFileName(exePath);
+
             foreach (var block in output.Split(new[] { "\r\n\r\n", "\n\n" }, StringSplitOptions.RemoveEmptyEntries))
             {
-                if (block.IndexOf(portToken, StringComparison.Ordinal) < 0) continue;
+                bool matchesPort = block.IndexOf(portToken, StringComparison.Ordinal) >= 0;
+                bool matchesProgram = !string.IsNullOrEmpty(exeName)
+                    && block.IndexOf(exeName, StringComparison.OrdinalIgnoreCase) >= 0;
+
+                if (!matchesPort && !matchesProgram) continue;
 
                 // 로케일에 따라 Allow / 허용 으로 표시됩니다.
                 bool isAllow = block.IndexOf("Allow", StringComparison.OrdinalIgnoreCase) >= 0

@@ -128,3 +128,23 @@ public class MobileRadarServerTests
         Assert.False(server.IsRunning);
     }
 }
+
+public class ScanCodeTests
+{
+    [Fact]
+    public void PrintScreen_은_실제_키보드와_같은_스캔코드를_쓴다()
+    {
+        // MapVirtualKey 는 0x54(SysRq)를 돌려주지만 실제 키보드는 E0 37 을 보냅니다.
+        // 0x54 로 주입하면 키가 아예 먹지 않아 자동 촬영이 조용히 실패합니다.
+        Assert.Equal(0x37, AutoScreenshotService.GetScanCode(Keys.PrintScreen));
+    }
+
+    [Theory]
+    [InlineData(Keys.F9)]
+    [InlineData(Keys.F12)]
+    [InlineData(Keys.Insert)]
+    public void 보정이_필요없는_키는_스캔코드를_구할_수_있다(Keys key)
+    {
+        Assert.NotEqual(0, AutoScreenshotService.GetScanCode(key));
+    }
+}
