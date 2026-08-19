@@ -73,7 +73,6 @@
             this.webView2_Settings.Size = new System.Drawing.Size(1309, 1061);
             this.webView2_Settings.TabIndex = 8;
             this.webView2_Settings.ZoomFactor = 1D;
-            this.webView2_Settings.Click += new System.EventHandler(this.webView21_Click);
             // 
             // SettingPage
             // 

@@ -15,7 +15,46 @@
         {
             if (disposing)
             {
-                hotkeyManager?.Dispose();
+                // 백그라운드에서 계속 도는 것들을 확실히 멈춥니다.
+                settingsHandler.SettingsChanged -= OnSettingsChanged;
+
+                if (logWatcher != null)
+                {
+                    logWatcher.MapDetected -= OnMapDetectedFromLog;
+                    logWatcher.RaidEnded -= OnRaidEndedFromLog;
+                    logWatcher.Dispose();
+                    logWatcher = null;
+                }
+
+                if (watcher != null)
+                {
+                    watcher.EnableRaisingEvents = false;
+                    watcher.Created -= OnScreenshotCreated;
+                    watcher.Dispose();
+                    watcher = null;
+                }
+
+                if (hotkeyManager != null)
+                {
+                    hotkeyManager.FloorHotkeyPressed -= OnFloorHotkeyPressed;
+                    hotkeyManager.Dispose();
+                    hotkeyManager = null;
+                }
+
+                if (radarCaptureTimer != null)
+                {
+                    radarCaptureTimer.Stop();
+                    radarCaptureTimer.Dispose();
+                    radarCaptureTimer = null;
+                }
+
+                radarServer?.Dispose();
+                radarServer = null;
+
+                autoScreenshot?.Dispose();
+                autoScreenshot = null;
+
+                checkLocationGate?.Dispose();
                 components?.Dispose();
             }
             base.Dispose(disposing);
@@ -52,7 +91,6 @@
             webView2.Size = new Size(1309, 1188);
             webView2.TabIndex = 17;
             webView2.ZoomFactor = 1D;
-            webView2.Click += webView2_Click;
             // 
             // panel1
             // 
@@ -76,7 +114,6 @@
             webView2_panel_ui.Size = new Size(1309, 138);
             webView2_panel_ui.TabIndex = 0;
             webView2_panel_ui.ZoomFactor = 1D;
-            webView2_panel_ui.Click += webView2_panel_ui_Click;
             // 
             // checkBoxHide
             // 

@@ -1,12 +1,9 @@
-namespace eft_where_am_i.Classes
+﻿namespace eft_where_am_i.Classes
 {
     public class Constants
     {   
-        public const string HIDE_SHOW_PANNE_BUTTON_SELECTOR = "#__nuxt > div > div > div.page-content > div > div > div.panel_top > div > div.mr-15 > button";
-
-        public const string FULL_SCREEN_BUTTON_SELECTOR = "#__nuxt > div > div > div.page-content > div > div > div.panel_top > div > button";
-
-        public const string WHERE_AM_I_BUTTON_SELECTOR = "#__nuxt > div > div > div.page-content > div > div > div.panel_top > div > div.d-flex.ml-15 > button";
+        // tarkov-market 의 DOM 셀렉터는 SelectorConfig 로 옮겼습니다.
+        // (사이트 마크업이 바뀌어도 assets/selectors.json 만 고치면 되도록)
 
         /*
          * The following code (ADD_DIRECTION_INDICATORS_SCRIPT) is from 'Tarkov-Client' by 'byeong1'
@@ -149,50 +146,102 @@ namespace eft_where_am_i.Classes
 })();";
 
         /// <summary>
-        /// 맵 캘리브레이션 스크립트: 프로브 2점으로 pixel↔game 좌표 변환 계수를 계산합니다.
+        /// 층 판정 스크립트. 페이지가 로드될 때마다 상시 주입됩니다.
+        ///
+        /// 좌표계 주의:
+        ///  - zone.polygon 은 <b>맵 CSS 픽셀 좌표</b>입니다 (에디터가 마커의 left/top 기준으로 찍음).
+        ///  - zone.z_min/z_max 는 <b>게임 좌표의 높이(y)</b> 범위입니다 (타르코프는 Unity라 y가 높이).
+        /// 따라서 폴리곤 판정은 반드시 브라우저 쪽 마커 픽셀 위치로 해야 하며,
+        /// 게임 좌표를 그대로 폴리곤에 넣으면 안 됩니다.
         /// </summary>
-        /// <summary>
-        /// 마커 위치를 읽는 스크립트. JSON 문자열을 동기적으로 반환합니다.
-        /// </summary>
-        public const string READ_MARKER_POSITION_SCRIPT =
+        public const string FLOOR_DETECTION_SCRIPT =
             @"
 (function() {
-    var markers = document.querySelectorAll('.marker');
-    if (markers.length === 0) return JSON.stringify({ found: false });
-    var marker = markers[markers.length - 1];
-    var mapContainer = document.querySelector('#map');
-    if (!mapContainer) return JSON.stringify({ found: false });
+    'use strict';
 
-    // Use getBoundingClientRect for accurate position (includes all transforms)
-    var markerRect = marker.getBoundingClientRect();
-    var mapRect = mapContainer.getBoundingClientRect();
+    // 마커의 CSS left/top = 맵 픽셀 좌표계. zone.polygon 과 같은 좌표계입니다.
+    window.__getMarkerPosition = function() {
+        var markers = document.querySelectorAll('.marker');
+        if (markers.length === 0) return null;
+        var marker = markers[markers.length - 1];
+        var style = window.getComputedStyle(marker);
+        return {
+            x: parseFloat(style.left) || 0,
+            y: parseFloat(style.top) || 0
+        };
+    };
 
-    // Calculate marker center position relative to map container
-    var left = (markerRect.left + markerRect.width / 2) - mapRect.left;
-    var top = (markerRect.top + markerRect.height / 2) - mapRect.top;
+    // Ray casting 알고리즘
+    window.__isPointInPolygon = function(px, py, polygon) {
+        if (!polygon || polygon.length < 3) return false;
+        var inside = false;
+        for (var i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            var xi = polygon[i].x, yi = polygon[i].y;
+            var xj = polygon[j].x, yj = polygon[j].y;
+            if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+                inside = !inside;
+            }
+        }
+        return inside;
+    };
 
-    return JSON.stringify({ found: true, left: left, top: top, count: markers.length });
-})()";
+    // 마커가 속한 zone 을 찾습니다. gameY 는 게임 좌표의 높이입니다.
+    window.__getMarkerZone = function(zones, gameY) {
+        var markerPos = window.__getMarkerPosition();
+        if (!markerPos || !zones) return null;
 
-        /// <summary>
-        /// 캘리브레이션 완료 후 좌표 변환 함수를 주입합니다.
-        /// {0}=scaleX, {1}=scaleY, {2}=offsetX, {3}=offsetY
-        /// </summary>
-        public const string INJECT_CALIBRATION_FUNCTIONS =
-            @"
-(function() {{
-    window.__floorCalibration = {{ scaleX: {0}, scaleY: {1}, offsetX: {2}, offsetY: {3} }};
-    window.__pixelToGame = function(px, py) {{
-        var cal = window.__floorCalibration;
-        if (!cal || cal.scaleX === 0 || cal.scaleY === 0) return null;
-        return {{ x: (px - cal.offsetX) / cal.scaleX, y: (py - cal.offsetY) / cal.scaleY }};
-    }};
-    window.__gameToPixel = function(gx, gy) {{
-        var cal = window.__floorCalibration;
-        if (!cal) return null;
-        return {{ x: gx * cal.scaleX + cal.offsetX, y: gy * cal.scaleY + cal.offsetY }};
-    }};
-}})();";
+        for (var i = 0; i < zones.length; i++) {
+            var zone = zones[i];
+            if (!window.__isPointInPolygon(markerPos.x, markerPos.y, zone.polygon)) continue;
+
+            var inHole = false;
+            if (zone.holes) {
+                for (var h = 0; h < zone.holes.length; h++) {
+                    if (window.__isPointInPolygon(markerPos.x, markerPos.y, zone.holes[h])) {
+                        inHole = true;
+                        break;
+                    }
+                }
+            }
+            if (inHole) continue;
+
+            if (gameY < zone.z_min || gameY >= zone.z_max) continue;
+
+            return zone;
+        }
+        return null;
+    };
+
+    // 현재 페이지에 실제로 존재하는 층 레이어 라벨 목록 (진단/에디터용)
+    window.__getFloorLayerLabels = function() {
+        var labels = [];
+        var inputs = document.querySelectorAll('.no-wrap input[name=layers]');
+        for (var i = 0; i < inputs.length; i++) {
+            var parent = inputs[i].parentNode;
+            if (!parent) continue;
+            var text = (parent.innerText || '').trim();
+            if (text) labels.push(text);
+        }
+        return labels;
+    };
+
+    // C# 에서 호출하는 통합 진입점. JSON 문자열을 반환합니다.
+    window.__detectFloor = function(zones, gameY) {
+        var pos = window.__getMarkerPosition();
+        if (!pos) {
+            return JSON.stringify({ ok: false, reason: 'no-marker', labels: window.__getFloorLayerLabels() });
+        }
+
+        var zone = window.__getMarkerZone(zones, gameY);
+        return JSON.stringify({
+            ok: true,
+            floor: zone ? (zone.floor_label || zone.name || null) : null,
+            markerX: pos.x,
+            markerY: pos.y,
+            labels: window.__getFloorLayerLabels()
+        });
+    };
+})();";
 
         /// <summary>
         /// 맵 위에 폴리곤 오버레이와 클릭 핸들러를 추가합니다.
@@ -235,19 +284,8 @@ namespace eft_where_am_i.Classes
     window.__floorOverlaySvg = svg;
     window.__floorMapContainer = mapContainer;
 
-    // ============================================================
-    // Get marker's CSS left/top (pixel coordinates in map space)
-    // ============================================================
-    window.__getMarkerPosition = function() {
-        var markers = document.querySelectorAll('.marker');
-        if (markers.length === 0) return null;
-        var marker = markers[markers.length - 1];
-        var style = window.getComputedStyle(marker);
-        return {
-            x: parseFloat(style.left) || 0,
-            y: parseFloat(style.top) || 0
-        };
-    };
+    // __getMarkerPosition / __isPointInPolygon / __getMarkerZone 은
+    // FLOOR_DETECTION_SCRIPT 에서 상시 주입되므로 여기서 다시 정의하지 않습니다.
 
     // Convert screen coordinates to map CSS coordinates (same as marker left/top)
     window.__screenToMapCoords = function(screenX, screenY) {
@@ -531,51 +569,6 @@ namespace eft_where_am_i.Classes
     };
 
     window.__floorDrawMode = window.__floorDrawMode || 'zone';
-
-    // ============================================================
-    // Point-in-polygon check (for floor detection)
-    // ============================================================
-    window.__isPointInPolygon = function(px, py, polygon) {
-        if (!polygon || polygon.length < 3) return false;
-        let inside = false;
-        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-            const xi = polygon[i].x, yi = polygon[i].y;
-            const xj = polygon[j].x, yj = polygon[j].y;
-            if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
-                inside = !inside;
-            }
-        }
-        return inside;
-    };
-
-    // Check which zone the marker is in (returns zone or null)
-    window.__getMarkerZone = function(zones, gameY) {
-        const markerPos = window.__getMarkerPosition();
-        if (!markerPos || !zones) return null;
-
-        for (let i = 0; i < zones.length; i++) {
-            const zone = zones[i];
-            if (!window.__isPointInPolygon(markerPos.x, markerPos.y, zone.polygon)) continue;
-
-            // Check holes
-            let inHole = false;
-            if (zone.holes) {
-                for (const hole of zone.holes) {
-                    if (window.__isPointInPolygon(markerPos.x, markerPos.y, hole)) {
-                        inHole = true;
-                        break;
-                    }
-                }
-            }
-            if (inHole) continue;
-
-            // Check Z range (gameY is height in Tarkov)
-            if (gameY < zone.z_min || gameY >= zone.z_max) continue;
-
-            return zone;
-        }
-        return null;
-    };
 
     // ============================================================
     // Watch for zoom changes and redraw vertices
@@ -907,23 +900,35 @@ namespace eft_where_am_i.Classes
     window.__floorEditorSelectedZone = -1;
     window.__floorDrawMode = window.__floorDrawMode || 'zone';
 
-    // Extract floors from tarkov.dev map UI
+    // 페이지의 레이어 라벨을 읽고, floor_db 에 같은 이름이 있으면 그쪽 높이 범위를 씁니다.
+    //
+    // 예전에는 여기서 무조건 z_min:-999, z_max:999 를 넣었습니다.
+    // 그러면 그 폴리곤 안에 있기만 하면 높이와 무관하게 같은 층으로 판정돼서,
+    // 같은 자리에 층이 여러 개인 건물을 구분할 수 없었습니다.
     function getFloorsFromMap() {
         const layersContainer = document.querySelector('div.d-flex.h-space-between.layers');
         if (!layersContainer) return [];
 
+        const known = window.__floorEditorFloors || [];
         const floors = [];
         const floorDivs = layersContainer.querySelectorAll('div.no-wrap:not(.bold)');
+
         floorDivs.forEach(function(div) {
             const label = div.querySelector('label');
-            if (label) {
-                // Extract text only from label (excluding input element)
-                const text = label.textContent.trim();
-                if (text) {
-                    floors.push({ name: text, z_min: -999, z_max: 999 });
-                }
-            }
+            if (!label) return;
+
+            const text = label.textContent.trim();
+            if (!text) return;
+
+            const match = known.find(function(f) {
+                return f.name && f.name.toLowerCase() === text.toLowerCase();
+            });
+
+            floors.push(match
+                ? { name: text, z_min: match.z_min, z_max: match.z_max, known: true }
+                : { name: text, known: false });
         });
+
         return floors;
     }
 
@@ -956,13 +961,22 @@ namespace eft_where_am_i.Classes
             html += '<option value=""Ground"" data-zmin=""-5"" data-zmax=""100"">Ground (default)</option>';
         } else {
             floors.forEach(function(f) {
-                html += '<option value=""' + f.name + '"" data-zmin=""' + f.z_min + '"" data-zmax=""' + f.z_max + '"">' + f.name + '</option>';
+                var zmin = (f.z_min === undefined || f.z_min === null) ? '' : f.z_min;
+                var zmax = (f.z_max === undefined || f.z_max === null) ? '' : f.z_max;
+                html += '<option value=""' + f.name + '"" data-zmin=""' + zmin + '"" data-zmax=""' + zmax + '"">' + f.name + '</option>';
             });
         }
         html += '</select></div>';
 
-        // Z range display (auto-filled from floor selection)
-        html += '<div style=""margin-bottom:6px;color:#888;font-size:11px"">Z range: <span id=""fze-zrange"">auto from floor</span></div>';
+        // 높이(게임 y) 범위. 층이 겹치는 건물은 이 값으로 구분합니다.
+        var numStyle = 'width:70px;background:#0f3460;color:#eee;border:1px solid #555;padding:3px 5px;border-radius:3px;font-family:monospace;font-size:12px';
+        html += '<div style=""margin-bottom:6px;display:flex;align-items:center;gap:5px;font-size:11px;color:#aaa"">';
+        html += '<span>Height (y)</span>';
+        html += '<input type=""number"" id=""fze-zmin"" step=""any"" style=""' + numStyle + '"" />';
+        html += '<span>~</span>';
+        html += '<input type=""number"" id=""fze-zmax"" step=""any"" style=""' + numStyle + '"" />';
+        html += '</div>';
+        html += '<div id=""fze-zhint"" style=""margin-bottom:6px;font-size:10px;color:#fbbf24;display:none"">이 층의 높이 범위를 모릅니다. 값을 직접 입력해 주세요.</div>';
 
         // Mode selection
         html += '<div style=""margin-bottom:6px"">';
@@ -1027,15 +1041,39 @@ namespace eft_where_am_i.Classes
         updateZRangeDisplay();
     }
 
+    // 선택한 층에 알려진 높이 범위가 있으면 입력칸을 채우고,
+    // 모르면 비워둔 채 직접 입력하라고 안내합니다.
     function updateZRangeDisplay() {
         const floorSelect = document.getElementById('fze-floor');
-        const zrangeSpan = document.getElementById('fze-zrange');
-        if (floorSelect && zrangeSpan) {
-            const opt = floorSelect.options[floorSelect.selectedIndex];
-            const zmin = opt.getAttribute('data-zmin');
-            const zmax = opt.getAttribute('data-zmax');
-            zrangeSpan.textContent = zmin + ' ~ ' + zmax;
-        }
+        const zminInput = document.getElementById('fze-zmin');
+        const zmaxInput = document.getElementById('fze-zmax');
+        const hint = document.getElementById('fze-zhint');
+        if (!floorSelect || !zminInput || !zmaxInput) return;
+
+        const opt = floorSelect.options[floorSelect.selectedIndex];
+        if (!opt) return;
+
+        const zmin = opt.getAttribute('data-zmin');
+        const zmax = opt.getAttribute('data-zmax');
+        const known = zmin !== null && zmin !== '' && zmax !== null && zmax !== '';
+
+        zminInput.value = known ? zmin : '';
+        zmaxInput.value = known ? zmax : '';
+        if (hint) hint.style.display = known ? 'none' : 'block';
+    }
+
+    // 입력칸에서 높이 범위를 읽습니다. 비어 있으면 null 을 돌려줍니다.
+    function readZRange() {
+        const zminInput = document.getElementById('fze-zmin');
+        const zmaxInput = document.getElementById('fze-zmax');
+        if (!zminInput || !zmaxInput) return null;
+
+        const zmin = parseFloat(zminInput.value);
+        const zmax = parseFloat(zmaxInput.value);
+        if (!isFinite(zmin) || !isFinite(zmax)) return null;
+        if (zmin >= zmax) return null;
+
+        return { zmin: zmin, zmax: zmax };
     }
 
     function attachEvents() {
@@ -1057,13 +1095,18 @@ namespace eft_where_am_i.Classes
                     const floorSel = document.getElementById('fze-floor');
                     const opt = floorSel.options[floorSel.selectedIndex];
                     const name = opt.value || 'Unnamed';
-                    const zmin = parseFloat(opt.getAttribute('data-zmin')) || -50;
-                    const zmax = parseFloat(opt.getAttribute('data-zmax')) || -5;
+
+                    const range = readZRange();
+                    if (!range) {
+                        alert('높이(y) 범위를 올바르게 입력해 주세요. (최소값 < 최대값)');
+                        return;
+                    }
+
                     window.__floorEditorZones.push({
                         name: name,
                         floor_label: name,
-                        z_min: zmin,
-                        z_max: zmax,
+                        z_min: range.zmin,
+                        z_max: range.zmax,
                         polygon: verts.slice(),
                         holes: []
                     });

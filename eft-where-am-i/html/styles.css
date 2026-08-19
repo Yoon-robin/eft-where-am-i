@@ -1,86 +1,471 @@
 @import 'tailwindcss';
 
+/* ============================================================
+   EFT: Where Am I — 디자인 시스템
+
+   다크 + 바이올렛 글래스 톤.
+   아주 어두운 무채색 바닥 위에 반투명 패널을 얹고,
+   강조는 보라 계열 + 은은한 글로우로 처리합니다.
+
+   모든 화면(panel / settings / mobile)이 이 토큰을 공유합니다.
+   ============================================================ */
+
 :root {
-  color-scheme: light;
-  --app-bg: #f3f4f6;
-  --app-text: #111827;
-  --surface: #ffffff;
-  --surface-alt: #f9fafb;
-  --border: #d1d5db;
-  --muted: #6b7280;
-  --link: #2563eb;
-  --accent: #2563eb;
-  --control-bg: #ffffff;
-  --control-hover: #e5e7eb;
+  color-scheme: dark;
+
+  /* 바닥 / 표면 */
+  --app-bg: #0b0b10;
+  --app-bg-2: #101018;
+  --surface: rgba(24, 24, 33, 0.72);
+  --surface-solid: #181821;
+  --surface-alt: rgba(32, 32, 44, 0.7);
+  --surface-sunken: #0d0d13;
+
+  /* 텍스트 */
+  --app-text: #d9d9e3;
+  --text-strong: #f4f4f8;
+  --muted: #8b8ba3;
+  --faint: #5f5f75;
+
+  /* 선 */
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.13);
+  --edge-light: rgba(255, 255, 255, 0.08);
+
+  /* 강조 (바이올렛) */
+  --accent: #8b6dff;
+  --accent-bright: #a58bff;
+  --accent-dim: #6d52d9;
+  --accent-soft: rgba(139, 109, 255, 0.14);
+  --accent-border: rgba(139, 109, 255, 0.42);
+  --accent-contrast: #ffffff;
+  --accent-glow: 0 0 0 1px rgba(139, 109, 255, 0.35), 0 6px 22px -6px rgba(139, 109, 255, 0.55);
+
+  --success: #5fd39a;
+  --warning: #e0b25c;
+  --danger: #f0736c;
+
+  --link: #a58bff;
+
+  /* 컨트롤 */
+  --control-bg: rgba(38, 38, 52, 0.72);
+  --control-hover: rgba(52, 52, 70, 0.8);
+  --control-active: rgba(62, 62, 84, 0.85);
+
+  /* 모양 */
+  --r-sm: 8px;
+  --r-md: 11px;
+  --r-lg: 16px;
+  --r-full: 999px;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-md: 0 4px 18px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.6);
+
+  --ring: 0 0 0 3px rgba(139, 109, 255, 0.28);
+  --blur: 14px;
+
+  /* 간격 */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
 }
 
-body.theme-dark {
-  color-scheme: dark;
-  --app-bg: #1e1e1e;
-  --app-text: #f9fafb;
-  --surface: #242424;
-  --surface-alt: #2f2f2f;
-  --border: #4a4a4a;
-  --muted: #b3b3b3;
-  --link: #60a5fa;
-  --accent: #60a5fa;
-  --control-bg: #2a2a2a;
-  --control-hover: #3a3a3a;
+/* 라이트 테마 — 같은 보라 강조를 유지하되 바닥을 밝게 */
+body.theme-light {
+  color-scheme: light;
+
+  --app-bg: #f4f4f8;
+  --app-bg-2: #ffffff;
+  --surface: rgba(255, 255, 255, 0.86);
+  --surface-solid: #ffffff;
+  --surface-alt: rgba(244, 244, 250, 0.9);
+  --surface-sunken: #ebebf2;
+
+  --app-text: #24242e;
+  --text-strong: #101018;
+  --muted: #6a6a7d;
+  --faint: #9a9aad;
+
+  --border: rgba(16, 16, 30, 0.09);
+  --border-strong: rgba(16, 16, 30, 0.16);
+  --edge-light: rgba(255, 255, 255, 0.8);
+
+  --accent: #6d4ee0;
+  --accent-bright: #7c5cff;
+  --accent-dim: #5a3fc4;
+  --accent-soft: rgba(109, 78, 224, 0.1);
+  --accent-border: rgba(109, 78, 224, 0.35);
+  --accent-contrast: #ffffff;
+  --accent-glow: 0 0 0 1px rgba(109, 78, 224, 0.3), 0 6px 20px -8px rgba(109, 78, 224, 0.5);
+
+  --success: #2f8f62;
+  --warning: #9a6c17;
+  --danger: #c0392f;
+  --link: #5a3fc4;
+
+  --control-bg: #ffffff;
+  --control-hover: #f0f0f6;
+  --control-active: #e6e6ef;
+
+  --shadow-sm: 0 1px 2px rgba(16, 16, 30, 0.06);
+  --shadow-md: 0 4px 16px rgba(16, 16, 30, 0.08);
+  --shadow-lg: 0 18px 44px rgba(16, 16, 30, 0.14);
 }
+
+/* ── 기본 ─────────────────────────────────────── */
 
 html, body {
   margin: 0;
   padding: 0;
   min-height: 100%;
   width: 100%;
-  background-color: var(--app-bg);
   color: var(--app-text);
+  background-color: var(--app-bg);
 }
 
 body {
-  min-height: 100vh;
-  font-family: sans, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+  /* 위쪽에서 은은하게 번지는 보라 글로우 */
+  background-image:
+    radial-gradient(900px 420px at 18% -12%, rgba(139, 109, 255, 0.16), transparent 62%),
+    radial-gradient(760px 380px at 88% -6%, rgba(96, 120, 255, 0.10), transparent 60%);
+  background-attachment: fixed;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI",
+               Roboto, "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", "Malgun Gothic",
+               "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-body.theme-dark select,
-body.theme-dark input[type="text"],
-body.theme-dark input[type="range"],
-body.theme-dark button,
-body.theme-dark .bg-white,
-body.theme-dark .bg-gray-100,
-body.theme-dark .bg-gray-300,
-body.theme-dark .bg-blue-500 {
+body.theme-light {
+  background-image:
+    radial-gradient(900px 420px at 18% -12%, rgba(109, 78, 224, 0.10), transparent 62%),
+    radial-gradient(760px 380px at 88% -6%, rgba(80, 110, 235, 0.07), transparent 60%);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+::selection { background: var(--accent); color: var(--accent-contrast); }
+
+/* 스크롤바 */
+* { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background-color: var(--border-strong);
+  border-radius: var(--r-full);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background-color: var(--accent-dim); background-clip: content-box; }
+
+/* ── 타이포 ───────────────────────────────────── */
+
+.h-page {
+  font-size: 23px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-strong);
+}
+
+.h-section {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  color: var(--text-strong);
+}
+
+.eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.help { font-size: 12px; line-height: 1.65; color: var(--muted); }
+
+.mono {
+  font-family: ui-monospace, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+
+/* ── 카드 (글래스 패널) ───────────────────────── */
+
+.card {
+  position: relative;
+  background: var(--surface);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-md);
+  padding: var(--s-4) var(--s-5) calc(var(--s-4) + 2px);
+  overflow: hidden;
+}
+
+/* 위쪽 모서리에 얇은 하이라이트를 얹어 유리 느낌을 냅니다 */
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--edge-light), transparent);
+  pointer-events: none;
+}
+
+.card + .card { margin-top: var(--s-3); }
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-bottom: var(--s-3);
+}
+
+.card-icon {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  color: var(--accent-bright);
+}
+
+.card-icon svg { width: 17px; height: 17px; }
+
+/* ── 버튼 ─────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1;
+  padding: 9px 15px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--control-bg);
+  color: var(--app-text);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.14s ease, border-color 0.14s ease,
+              box-shadow 0.14s ease, color 0.14s ease, transform 0.08s ease;
+}
+
+.btn:hover { background: var(--control-hover); border-color: var(--accent-border); color: var(--text-strong); }
+.btn:active { background: var(--control-active); transform: translateY(1px); }
+.btn:focus-visible { outline: none; box-shadow: var(--ring); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-primary {
+  background: linear-gradient(180deg, var(--accent-bright), var(--accent));
+  border-color: transparent;
+  color: var(--accent-contrast);
+  font-weight: 650;
+  box-shadow: var(--accent-glow);
+}
+.btn-primary:hover {
+  background: linear-gradient(180deg, var(--accent-bright), var(--accent-bright));
+  border-color: transparent;
+  color: var(--accent-contrast);
+}
+.btn-primary:active { background: linear-gradient(180deg, var(--accent), var(--accent-dim)); }
+
+.btn-sm { padding: 7px 11px; font-size: 12px; }
+
+.btn svg { width: 14px; height: 14px; flex: none; }
+
+/* ── 토글 칩 (체크박스) ───────────────────────── */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-full);
+  background: var(--control-bg);
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 12.5px;
+  line-height: 1.2;
+  user-select: none;
+  transition: background-color 0.14s ease, border-color 0.14s ease,
+              color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.chip:hover { background: var(--control-hover); border-color: var(--accent-border); }
+
+.chip input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex: none;
+}
+
+.chip:has(input:checked) {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent-bright);
+  font-weight: 600;
+  box-shadow: 0 0 18px -8px var(--accent);
+}
+
+.chip:focus-within { box-shadow: var(--ring); }
+
+/* ── 폼 컨트롤 ────────────────────────────────── */
+
+.field { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
+
+.field-label {
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--app-text);
+  min-width: 96px;
+}
+
+.input, .select {
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+  color: var(--app-text);
+  transition: border-color 0.14s ease, box-shadow 0.14s ease, background-color 0.14s ease;
+  min-width: 0;
+}
+
+body.theme-light .input,
+body.theme-light .select { background: var(--control-bg); }
+
+.select { cursor: pointer; padding-right: 30px; }
+
+.input:hover, .select:hover { border-color: var(--accent-border); }
+
+.input:focus, .select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+
+.input[readonly] { color: var(--muted); cursor: default; }
+.input[readonly]:hover { border-color: var(--border-strong); }
+
+.input-path {
+  font-family: ui-monospace, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  flex: 1;
+  min-width: 220px;
+}
+
+/* 슬라이더 */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 5px;
+  border-radius: var(--r-full);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-strong);
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, var(--accent-bright), var(--accent));
+  border: none;
+  box-shadow: var(--accent-glow);
+  cursor: pointer;
+}
+
+input[type="range"]:focus-visible { outline: none; box-shadow: var(--ring); }
+
+/* ── 값 표시 배지 ─────────────────────────────── */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: var(--r-md);
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--app-text);
+  white-space: nowrap;
+}
+
+.badge-mono {
+  font-family: ui-monospace, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 500;
+  color: var(--accent-bright);
+  user-select: all;
+}
+
+.badge-muted { color: var(--faint); font-weight: 500; font-style: italic; }
+
+/* ── 안내 배너 ────────────────────────────────── */
+
+.note {
+  display: flex;
+  gap: 9px;
+  padding: 11px 14px;
+  border-radius: var(--r-md);
+  font-size: 12px;
+  line-height: 1.65;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--muted);
+}
+
+.note-warn {
+  border-color: rgba(224, 178, 92, 0.32);
+  background: rgba(224, 178, 92, 0.09);
+  color: var(--warning);
+}
+
+.note svg { width: 15px; height: 15px; flex: none; margin-top: 1px; }
+
+/* ── 링크 ─────────────────────────────────────── */
+
+a { color: var(--link); text-decoration: none; transition: color 0.14s ease; }
+a:hover { color: var(--accent-bright); text-decoration: underline; }
+
+/* ── 유틸 ─────────────────────────────────────── */
+
+.row { display: flex; align-items: center; gap: var(--s-2); }
+.col { display: flex; flex-direction: column; gap: var(--s-2); }
+.grow { flex: 1; min-width: 0; }
+.hidden { display: none !important; }
+.divider { height: 1px; background: var(--border); margin: var(--s-4) 0; border: 0; }
+
+/* ── 구형 Tailwind 클래스 호환 ────────────────────
+   남아 있는 예전 마크업이 다크 바닥에서 깨지지 않도록 보정합니다. */
+
+.bg-white, .bg-gray-100, .bg-gray-200, .bg-gray-300 {
   background-color: var(--control-bg);
   color: var(--app-text);
   border-color: var(--border);
 }
 
-body.theme-dark button:hover,
-body.theme-dark .hover\:bg-gray-100:hover,
-body.theme-dark .hover\:bg-gray-400:hover,
-body.theme-dark .hover\:bg-blue-600:hover {
-  background-color: var(--control-hover);
-}
-
-body.theme-dark a,
-body.theme-dark .text-blue-600 {
-  color: var(--link);
-}
-
-body.theme-dark .text-gray-500 {
-  color: var(--muted);
-}
-
-body.theme-dark .text-gray-700 {
-  color: var(--app-text);
-}
-
-body.theme-dark input[type="checkbox"] {
-  accent-color: var(--accent);
-}
-
-body.theme-dark .bg-blue-500 {
-  background-color: var(--accent);
-  color: #ffffff;
-}
+.text-gray-500 { color: var(--muted); }
+.text-gray-700 { color: var(--app-text); }
+.text-blue-600 { color: var(--link); }

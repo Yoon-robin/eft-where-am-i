@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using System.IO;
+using System.Linq;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using eft_where_am_i.Classes;
@@ -48,24 +49,22 @@ namespace eft_where_am_i
             appSettings = updatedSettings; // 로컬 참조 업데이트
                                            // WebView나 UI 갱신 필요 시 호출
             _ = webView2_Settings.ExecuteScriptAsync($"setCheckboxState({appSettings.auto_screenshot_detection.ToString().ToLower()})");
-            _ = webView2_Settings.ExecuteScriptAsync($"setLanguage('{appSettings.language}')");
-            string escapedPath = appSettings.screenshot_path.Replace("\\", "\\\\");
-            _ = webView2_Settings.ExecuteScriptAsync($"setScreenshotPath('{escapedPath}')");
-            string escapedLogPath = appSettings.log_path.Replace("\\", "\\\\");
-            _ = webView2_Settings.ExecuteScriptAsync($"setLogPath('{escapedLogPath}')");
+            _ = webView2_Settings.ExecuteScriptAsync($"setLanguage({JavaScriptExecutor.JsLiteral(appSettings.language)})");
+            _ = webView2_Settings.ExecuteScriptAsync($"setScreenshotPath({JavaScriptExecutor.JsLiteral(appSettings.screenshot_path)})");
+            _ = webView2_Settings.ExecuteScriptAsync($"setLogPath({JavaScriptExecutor.JsLiteral(appSettings.log_path)})");
             _ = webView2_Settings.ExecuteScriptAsync($"setDeadZonePercent({appSettings.dead_zone_percent})");
-            _ = webView2_Settings.ExecuteScriptAsync($"setTheme('{appSettings.theme_mode}')");
+            _ = webView2_Settings.ExecuteScriptAsync($"setTheme({JavaScriptExecutor.JsLiteral(appSettings.theme_mode)})");
+            _ = webView2_Settings.ExecuteScriptAsync(
+                $"setAutoCaptureKey({JavaScriptExecutor.JsLiteral(appSettings.auto_screenshot_key)})");
+            PushRadarInfo();
         }
 
         private async Task InitializeWebViewUI()
         {
-            // 고유한 사용자 데이터 폴더 생성 (임시 폴더 + GUID 사용)
-            string userDataFolder = Path.Combine(Path.GetTempPath(), "MyAppWebView2_Settings", Guid.NewGuid().ToString());
             CoreWebView2Environment env = null;
             try
             {
-                // 사용자 데이터 폴더를 지정하여 새로운 WebView2 환경 생성
-                env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+                env = await WebViewEnvironmentFactory.CreateAsync(WebViewEnvironmentFactory.ProfileSettings);
                 await webView2_Settings.EnsureCoreWebView2Async(env);
 
                 // 가상 호스트 매핑 코드: 예를 들어, 번역 파일들이 저장된 폴더를 매핑
@@ -105,28 +104,28 @@ namespace eft_where_am_i
                         await webView2_Settings.ExecuteScriptAsync($"setCheckboxState({appSettings.auto_screenshot_detection.ToString().ToLower()})");
 
                         // 언어 설정 전송
-                        string language = appSettings.language;
-                        await webView2_Settings.ExecuteScriptAsync($"setLanguage('{language}')");
+                        await webView2_Settings.ExecuteScriptAsync($"setLanguage({JavaScriptExecutor.JsLiteral(appSettings.language)})");
 
-                        // 스크린샷 경로 설정 전송
-                        string screenshotPath = appSettings.screenshot_path.Replace("\\", "\\\\"); // JS에서 백슬래시 처리
-                        await webView2_Settings.ExecuteScriptAsync($"setScreenshotPath('{screenshotPath}')");
-
-                        // 로그 경로 설정 전송
-                        string logPath = appSettings.log_path.Replace("\\", "\\\\");
-                        await webView2_Settings.ExecuteScriptAsync($"setLogPath('{logPath}')");
+                        // 경로 전송 (JsLiteral 이 백슬래시까지 안전하게 이스케이프합니다)
+                        await webView2_Settings.ExecuteScriptAsync($"setScreenshotPath({JavaScriptExecutor.JsLiteral(appSettings.screenshot_path)})");
+                        await webView2_Settings.ExecuteScriptAsync($"setLogPath({JavaScriptExecutor.JsLiteral(appSettings.log_path)})");
 
                         // 데드존 비율 설정 전송
                         await webView2_Settings.ExecuteScriptAsync($"setDeadZonePercent({appSettings.dead_zone_percent})");
 
                         // 테마 설정 전송
-                        await webView2_Settings.ExecuteScriptAsync($"setTheme('{appSettings.theme_mode}')");
+                        await webView2_Settings.ExecuteScriptAsync($"setTheme({JavaScriptExecutor.JsLiteral(appSettings.theme_mode)})");
+
+                        // 자동 촬영 키 / 모바일 레이더 정보 전송
+                        await webView2_Settings.ExecuteScriptAsync(
+                            $"setAutoCaptureKey({JavaScriptExecutor.JsLiteral(appSettings.auto_screenshot_key)})");
+                        PushRadarInfo();
 
                         // 앱 버전 정보 전송
                         var version = Assembly.GetExecutingAssembly()
                             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
                             ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "?";
-                        await webView2_Settings.ExecuteScriptAsync($"setCurrentVersion('{version}')");
+                        await webView2_Settings.ExecuteScriptAsync($"setCurrentVersion({JavaScriptExecutor.JsLiteral(version)})");
 
                     }
                     catch (Exception ex)
@@ -223,6 +222,47 @@ namespace eft_where_am_i
                         SaveSettings();
                         break;
 
+                    case "auto-screenshot-key":
+                        string keyName = message["value"]?.ToString();
+                        if (!string.IsNullOrWhiteSpace(keyName))
+                        {
+                            appSettings.auto_screenshot_key = keyName;
+                            SaveSettings();
+                        }
+                        break;
+
+                    case "radar-port":
+                        int port = message["value"]?.Value<int>() ?? MobileRadarServer.DefaultPort;
+                        if (port < 1024 || port > 65535) port = MobileRadarServer.DefaultPort;
+
+                        if (port != appSettings.mobile_radar_port)
+                        {
+                            appSettings.mobile_radar_port = port;
+                            SaveSettings();
+                            PushRadarInfo();
+
+                            if (appSettings.mobile_radar_enabled)
+                            {
+                                MessageBox.Show(
+                                    "포트를 바꿨습니다. 모바일 레이더를 껐다 켜면 새 포트로 다시 시작합니다.\n\n" +
+                                    "Port changed. Toggle Mobile Radar off and on to apply.",
+                                    "모바일 레이더 / Mobile Radar",
+                                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            }
+                        }
+                        break;
+
+                    case "radar-regenerate-token":
+                        appSettings.mobile_radar_token = MobileRadarServer.GenerateToken();
+                        SaveSettings();
+                        PushRadarInfo();
+                        MessageBox.Show(
+                            "새 접근 코드를 만들었습니다. 폰에서 주소를 다시 열어주세요.\n\n" +
+                            "A new access code was generated. Reopen the address on your phone.",
+                            "모바일 레이더 / Mobile Radar",
+                            MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        break;
+
                     case "auto-detect-log-path":
                         try
                         {
@@ -243,13 +283,13 @@ namespace eft_where_am_i
                         break;
 
                     default:
-                        MessageBox.Show($"알 수 없는 action: {action}", "경고", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        AppLogger.Warn("SettingPage", $"알 수 없는 action: {action}");
                         break;
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"메시지 처리 중 오류 발생: {ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                AppLogger.Error("SettingPage", $"메시지 처리 실패: {ex.Message}");
             }
         }
 
@@ -290,6 +330,25 @@ namespace eft_where_am_i
             }
         }
 
+        /// <summary>
+        /// 모바일 레이더의 포트와 접속 주소를 설정 화면으로 보냅니다.
+        ///
+        /// 서버 인스턴스는 WhereAmI 화면이 들고 있으므로, 여기서는 설정값과
+        /// 이 PC 의 주소만으로 URL 을 만들어 보여줍니다.
+        /// </summary>
+        private void PushRadarInfo()
+        {
+            if (webView2_Settings.CoreWebView2 == null) return;
+
+            string host = MobileRadarServer.GetLocalAddresses().FirstOrDefault();
+            string url = string.IsNullOrEmpty(host) || string.IsNullOrWhiteSpace(appSettings.mobile_radar_token)
+                ? string.Empty
+                : $"http://{host}:{appSettings.mobile_radar_port}/{appSettings.mobile_radar_token}/";
+
+            _ = webView2_Settings.ExecuteScriptAsync(
+                $"setRadarInfo({appSettings.mobile_radar_port}, {JavaScriptExecutor.JsLiteral(url)})");
+        }
+
         private void LoadSettings()
         {
             try
@@ -298,7 +357,7 @@ namespace eft_where_am_i
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"설정 파일을 로드하는 동안 오류가 발생했습니다: {ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                AppLogger.Error("SettingPage", $"설정 로드 실패: {ex.Message}");
             }
         }
 
@@ -310,7 +369,7 @@ namespace eft_where_am_i
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"설정 파일을 저장하는 동안 오류가 발생했습니다: {ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                AppLogger.Error("SettingPage", $"설정 저장 실패: {ex.Message}");
             }
         }
 
@@ -329,9 +388,8 @@ namespace eft_where_am_i
                     appSettings.screenshot_path = selectedPath;
                     SaveSettings();
 
-                    // JavaScript에 업데이트된 경로 전송 (백슬래시 이스케이프)
-                    string escapedPath = selectedPath.Replace("\\", "\\\\");
-                    await webView2_Settings.ExecuteScriptAsync($"setScreenshotPath('{escapedPath}')");
+                    // JavaScript에 업데이트된 경로 전송
+                    await webView2_Settings.ExecuteScriptAsync($"setScreenshotPath({JavaScriptExecutor.JsLiteral(selectedPath)})");
                 }
             }
         }
@@ -351,26 +409,37 @@ namespace eft_where_am_i
                     appSettings.log_path = selectedPath;
                     SaveSettings();
 
-                    // JavaScript에 업데이트된 경로 전송 (백슬래시 이스케이프)
-                    string escapedPath = selectedPath.Replace("\\", "\\\\");
-                    await webView2_Settings.ExecuteScriptAsync($"setLogPath('{escapedPath}')");
+                    // JavaScript에 업데이트된 경로 전송
+                    await webView2_Settings.ExecuteScriptAsync($"setLogPath({JavaScriptExecutor.JsLiteral(selectedPath)})");
                 }
             }
         }
 
         private void lblHowToUse_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
         {
-            System.Diagnostics.Process.Start("https://github.com/karpitony/eft-where-am-i/blob/main/README.md");
+            OpenInBrowser("https://github.com/karpitony/eft-where-am-i/blob/main/README.md");
         }
 
         private void lblBugReport_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
         {
-            System.Diagnostics.Process.Start("https://github.com/karpitony/eft-where-am-i/issues");
+            OpenInBrowser("https://github.com/karpitony/eft-where-am-i/issues");
         }
 
-        private void webView21_Click(object sender, EventArgs e)
+        /// <summary>
+        /// 기본 브라우저로 URL 을 엽니다.
+        /// .NET 5+ 부터 Process.Start 의 UseShellExecute 기본값이 false 라서
+        /// 이 옵션 없이 URL 을 넘기면 Win32Exception 이 납니다.
+        /// </summary>
+        private static void OpenInBrowser(string url)
         {
-
+            try
+            {
+                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Error("SettingPage", $"링크 열기 실패 ({url}): {ex.Message}");
+            }
         }
     }
 }

@@ -1,0 +1,7 @@
+{
+  "_comment": "tarkov-market.com 의 DOM 셀렉터입니다. 사이트 마크업이 바뀌어 기능이 멈추면 이 파일만 고쳐도 됩니다. 사용자 프로필의 APPDATA 아래 eft-where-am-i 폴더에 같은 형식으로 selectors.json 을 두면 이 파일보다 우선 적용됩니다.",
+  "hide_show_panel_button": "#__nuxt > div > div > div.page-content > div > div > div.panel_top > div > div.mr-15 > button",
+  "full_screen_button": "#__nuxt > div > div > div.page-content > div > div > div.panel_top > div > button",
+  "where_am_i_button": "#__nuxt > div > div > div.page-content > div > div > div.panel_top > div > div.d-flex.ml-15 > button",
+  "location_input": "#__nuxt > div > div > div.page-content > div > div > div.panel_top > div > div:nth-child(4) > input[type=text]"
+}

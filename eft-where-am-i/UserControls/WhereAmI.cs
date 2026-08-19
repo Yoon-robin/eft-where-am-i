@@ -1,9 +1,10 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.IO;
 using System.Linq; 
 using System.Collections.Generic;
 using System.Windows.Forms;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Web.WebView2.Core;
 using Newtonsoft.Json.Linq;
@@ -19,44 +20,12 @@ namespace eft_where_am_i
         private JavaScriptExecutor jsExecutor;
         private QuestRepository questRepository;
         private FloorManager floorManager;
-        private readonly Dictionary<string, string> mapDisplayNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            { "ground-zero", "Ground Zero" },
-            { "factory", "Factory" },
-            { "customs", "Customs" },
-            { "interchange", "Interchange" },
-            { "woods", "Woods" },
-            { "shoreline", "Shoreline" },
-            { "lighthouse", "Lighthouse" },
-            { "reserve", "Reserve" },
-            { "streets", "Streets" },
-            { "lab", "The Lab" },
-            { "labyrinth", "Labyrinth" },
-            { "terminal", "Terminal" },
-            { "icebreaker", "Icebreaker" }
-        };
-
         private sealed class MapOption
         {
             public string value { get; set; } = string.Empty;
             public string label { get; set; } = string.Empty;
         }
 
-        private string[] mapList = {
-            "ground-zero",
-            "factory",
-            "customs",
-            "interchange",
-            "woods",
-            "shoreline",
-            "lighthouse",
-            "reserve",
-            "streets",
-            "lab",
-            "labyrinth",
-            "terminal",
-            "icebreaker"
-        };
         private string siteUrl;
         private bool whereAmIClick = false;
         private string screenshotPath;
@@ -66,6 +35,14 @@ namespace eft_where_am_i
         private bool chkAutoScreenshot;
         private bool isFloorEditMode = false;
         private GlobalHotkeyManager hotkeyManager;
+
+        // 게임이 활성 상태일 때 스크린샷 키를 대신 눌러주는 서비스
+        private AutoScreenshotService autoScreenshot;
+
+        // 폰에서 맵을 볼 수 있게 화면을 내보내는 서버 + 화면 캡처 타이머
+        private MobileRadarServer radarServer;
+        private System.Windows.Forms.Timer radarCaptureTimer;
+        private bool radarCaptureInFlight;
 
         public WhereAmI()
         {
@@ -111,6 +88,10 @@ namespace eft_where_am_i
                 // 6. 글로벌 핫키 매니저 초기화 (EFT 활성 시 Ctrl+Numpad로 층 전환)
                 hotkeyManager = new GlobalHotkeyManager();
                 hotkeyManager.FloorHotkeyPressed += OnFloorHotkeyPressed;
+
+                // 7. 자동 스크린샷 / 모바일 레이더
+                InitializeAutoScreenshot();
+                InitializeMobileRadar();
             }
             catch (Exception ex)
             {
@@ -128,6 +109,13 @@ namespace eft_where_am_i
             LoadSettings();
             ApplyTheme();
             ApplyTranslations();
+
+            // 설정 화면에서 바꾼 값을 실행 중인 서비스에 반영합니다.
+            if (autoScreenshot != null)
+            {
+                autoScreenshot.SetKeyFromName(appSettings.auto_screenshot_key);
+                autoScreenshot.IntervalSeconds = appSettings.auto_screenshot_interval_sec;
+            }
             string language = appSettings.language;
 
             // webView2_panel_ui.CoreWebView2가 null이 아닌지 확인하여
@@ -136,15 +124,15 @@ namespace eft_where_am_i
             {
                 try
                 {
-                    await webView2_panel_ui.ExecuteScriptAsync($"setLanguage('{language}')");
+                    await webView2_panel_ui.ExecuteScriptAsync($"setLanguage({JavaScriptExecutor.JsLiteral(language)})");
                     string mapListJson = Newtonsoft.Json.JsonConvert.SerializeObject(GetMapListForLanguage(language));
-                    await webView2_panel_ui.ExecuteScriptAsync($"populateMapList('{mapListJson}', '{appSettings.latest_map}')");
-                    await webView2_panel_ui.ExecuteScriptAsync($"setTheme('{appSettings.theme_mode}')");
+                    await webView2_panel_ui.ExecuteScriptAsync($"populateMapList({JavaScriptExecutor.JsLiteral(mapListJson)}, {JavaScriptExecutor.JsLiteral(appSettings.latest_map)})");
+                    await webView2_panel_ui.ExecuteScriptAsync($"setTheme({JavaScriptExecutor.JsLiteral(appSettings.theme_mode)})");
                 }
                 catch (Exception ex)
                 {
                     // 초기화 직후 드물게 발생하는 예외를 대비한 방어 코드
-                    MessageBox.Show($"설정 변경 중 스크립트 실행 오류: {ex.Message}", "경고", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    AppLogger.Warn("WhereAmI", $"설정 변경 반영 실패: {ex.Message}");
                 }
             }
             // 만약 null이라면 (아직 초기화 전),
@@ -162,26 +150,9 @@ namespace eft_where_am_i
                 return;
             }
 
-            bool isDark = string.Equals(appSettings?.theme_mode, "dark", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(SettingsHandler.Instance.GetSettings().theme_mode, "dark", StringComparison.OrdinalIgnoreCase);
-
-            Color background = isDark ? Color.FromArgb(30, 30, 30) : SystemColors.Control;
-            Color foreground = isDark ? Color.White : SystemColors.ControlText;
-
-            this.BackColor = background;
-            panel1.BackColor = background;
-
-            Color foldButtonBack = isDark ? Color.FromArgb(52, 52, 52) : Color.FromArgb(240, 240, 240);
-            Color foldButtonBorder = isDark ? Color.FromArgb(90, 90, 90) : SystemColors.ControlDark;
-            Color foldButtonHover = isDark ? Color.FromArgb(65, 65, 65) : Color.FromArgb(230, 230, 230);
-            Color foldButtonPressed = isDark ? Color.FromArgb(45, 45, 45) : Color.FromArgb(220, 220, 220);
-
-            checkBoxHide.BackColor = foldButtonBack;
-            checkBoxHide.ForeColor = foreground;
-            checkBoxHide.FlatStyle = FlatStyle.Flat;
-            checkBoxHide.FlatAppearance.BorderColor = foldButtonBorder;
-            checkBoxHide.FlatAppearance.MouseOverBackColor = foldButtonHover;
-            checkBoxHide.FlatAppearance.MouseDownBackColor = foldButtonPressed;
+            this.BackColor = AppTheme.Background;
+            panel1.BackColor = AppTheme.Background;
+            AppTheme.StyleCheckBox(checkBoxHide);
         }
 
         private void ApplyTranslations()
@@ -240,13 +211,11 @@ namespace eft_where_am_i
 
         private async Task InitializeWebViewContent()
         {
-            // 고유한 사용자 데이터 폴더 생성 (임시 폴더 + GUID 사용)
-            string userDataFolder = Path.Combine(Path.GetTempPath(), "MyAppWebView2_Content", Guid.NewGuid().ToString());
             CoreWebView2Environment env = null;
             try
             {
-                // 사용자 데이터 폴더를 지정하여 새로운 WebView2 환경 생성
-                env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+                // 고정 프로필 폴더 재사용 (예전처럼 실행마다 임시 폴더를 만들지 않습니다)
+                env = await WebViewEnvironmentFactory.CreateAsync(WebViewEnvironmentFactory.ProfileContent);
                 await webView2.EnsureCoreWebView2Async(env);
             }
             catch (COMException comEx) when (comEx.ErrorCode == unchecked((int)0x8007139F))
@@ -262,6 +231,7 @@ namespace eft_where_am_i
 
             // 영구 주입 스크립트 (새로고침 시에도 유지되도록 웹 콘텐츠가 로딩되기 전에 주입)
             await webView2.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(Constants.DEAD_ZONE_AUTO_PAN_SCRIPT);
+            await webView2.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(Constants.FLOOR_DETECTION_SCRIPT);
 
             // WebView2 콘텐츠 메시지 수신 핸들러 등록
             webView2.CoreWebView2.WebMessageReceived += WebView2Content_WebMessageReceived;
@@ -286,13 +256,10 @@ namespace eft_where_am_i
 
         private async Task InitializeWebViewUI()
         {
-            // 고유한 사용자 데이터 폴더 생성 (임시 폴더 + GUID 사용)
-            string userDataFolder = Path.Combine(Path.GetTempPath(), "MyAppWebView2", Guid.NewGuid().ToString());
             CoreWebView2Environment env = null;
             try
             {
-                // 사용자 데이터 폴더를 지정하여 새로운 WebView2 환경 생성
-                env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+                env = await WebViewEnvironmentFactory.CreateAsync(WebViewEnvironmentFactory.ProfilePanelUi);
                 await webView2_panel_ui.EnsureCoreWebView2Async(env);
 
 
@@ -333,11 +300,11 @@ namespace eft_where_am_i
                     {
                         // 언어 설정 전송
                         string language = appSettings.language;
-                        await webView2_panel_ui.ExecuteScriptAsync($"setLanguage('{language}')");
+                        await webView2_panel_ui.ExecuteScriptAsync($"setLanguage({JavaScriptExecutor.JsLiteral(language)})");
 
                         // 콤보박스에 맵 목록 전송
                         string mapListJson = Newtonsoft.Json.JsonConvert.SerializeObject(GetMapListForLanguage(appSettings.language));
-                        await webView2_panel_ui.ExecuteScriptAsync($"populateMapList('{mapListJson}', '{appSettings.latest_map}')");
+                        await webView2_panel_ui.ExecuteScriptAsync($"populateMapList({JavaScriptExecutor.JsLiteral(mapListJson)}, {JavaScriptExecutor.JsLiteral(appSettings.latest_map)})");
 
                         // 체크박스 상태 전송
                         await webView2_panel_ui.ExecuteScriptAsync($"setCheckboxState({appSettings.auto_screenshot_detection.ToString().ToLower()})");
@@ -348,8 +315,17 @@ namespace eft_where_am_i
                         // 자동 패닝 체크박스 상태 전송
                         await webView2_panel_ui.ExecuteScriptAsync($"setAutoPanningCheckboxState({appSettings.auto_panning.ToString().ToLower()})");
 
+                        // 자동 스크린샷 촬영 상태 전송
+                        await webView2_panel_ui.ExecuteScriptAsync(
+                            $"setAutoCaptureState({appSettings.auto_screenshot_capture.ToString().ToLower()}, {appSettings.auto_screenshot_interval_sec})");
+
+                        // 모바일 레이더 상태 전송
+                        await webView2_panel_ui.ExecuteScriptAsync(
+                            $"setMobileRadarState({appSettings.mobile_radar_enabled.ToString().ToLower()})");
+                        PushRadarStatusToUi();
+
                         // 테마 설정 전송
-                        await webView2_panel_ui.ExecuteScriptAsync($"setTheme('{appSettings.theme_mode}')");
+                        await webView2_panel_ui.ExecuteScriptAsync($"setTheme({JavaScriptExecutor.JsLiteral(appSettings.theme_mode)})");
 
                         // 스크린샷 자동 삭제 체크박스 상태 전송
                         await webView2_panel_ui.ExecuteScriptAsync(
@@ -364,8 +340,8 @@ namespace eft_where_am_i
                     }
                     catch (Exception ex)
                     {
-                        MessageBox.Show($"JavaScript 명령 전송 중 오류 발생: {ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        throw;
+                        // async void 이벤트 핸들러라 여기서 throw 하면 앱이 그대로 죽습니다.
+                        AppLogger.Error("WhereAmI", $"패널 UI 초기 상태 전송 실패: {ex.Message}");
                     }
                 }
             };
@@ -374,39 +350,13 @@ namespace eft_where_am_i
         // 메시지 수신 핸들러
         private List<MapOption> GetMapListForLanguage(string language)
         {
-            return mapList
-                .Select(map => new MapOption
+            return MapCatalog.Slugs
+                .Select(slug => new MapOption
                 {
-                    value = map,
-                    label = GetLocalizedMapName(map, language)
+                    value = slug,
+                    label = MapCatalog.GetDisplayName(slug, language)
                 })
                 .ToList();
-        }
-
-        private string GetLocalizedMapName(string mapKey, string language)
-        {
-            if (string.Equals(language, "ko", StringComparison.OrdinalIgnoreCase))
-            {
-                return mapKey switch
-                {
-                    "ground-zero" => "그라운드 제로",
-                    "factory" => "공장",
-                    "customs" => "세관",
-                    "interchange" => "인터체인지",
-                    "woods" => "삼림",
-                    "shoreline" => "해안선",
-                    "lighthouse" => "등대",
-                    "reserve" => "리저브",
-                    "streets" => "타르코프 시내",
-                    "lab" => "연구소",
-                    "labyrinth" => "미궁",
-                    "terminal" => "터미널",
-                    "icebreaker" => "쇄빙선",
-                    _ => mapDisplayNames.TryGetValue(mapKey, out var fallbackDisplay) ? fallbackDisplay : mapKey
-                };
-            }
-
-            return mapDisplayNames.TryGetValue(mapKey, out var fallbackDisplayName) ? fallbackDisplayName : mapKey;
         }
 
         private async void CoreWebView2_WebMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -458,6 +408,41 @@ namespace eft_where_am_i
                         UpdateLogWatcherState(isChecked);
                         break;
 
+                    case "auto-screenshot-capture-toggle":
+                        UpdateAutoScreenshotState(isChecked);
+                        break;
+
+                    case "auto-screenshot-interval":
+                        int interval = message["value"]?.Value<int>() ?? AutoScreenshotService.DefaultIntervalSeconds;
+                        appSettings.auto_screenshot_interval_sec = Math.Clamp(
+                            interval, AutoScreenshotService.MinIntervalSeconds, AutoScreenshotService.MaxIntervalSeconds);
+                        SaveSettings();
+                        if (autoScreenshot != null)
+                            autoScreenshot.IntervalSeconds = appSettings.auto_screenshot_interval_sec;
+                        break;
+
+                    case "mobile-radar-toggle":
+                        UpdateMobileRadarState(isChecked);
+                        break;
+
+                    case "mobile-radar-status":
+                        PushRadarStatusToUi();
+                        break;
+
+                    case "copy-radar-url":
+                        if (radarServer != null && radarServer.IsRunning)
+                        {
+                            try
+                            {
+                                Clipboard.SetText(radarServer.GetPrimaryUrl());
+                            }
+                            catch (Exception ex)
+                            {
+                                AppLogger.Warn("Radar", $"주소 복사 실패: {ex.Message}");
+                            }
+                        }
+                        break;
+
                     case "auto-panning-toggle":
                         appSettings.auto_panning = isChecked;
                         SaveSettings();
@@ -499,13 +484,13 @@ namespace eft_where_am_i
                         break;
 
                     default:
-                        MessageBox.Show($"알 수 없는 action: {action}", "경고", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        AppLogger.Warn("PanelUI", $"알 수 없는 action: {action}");
                         break;
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"메시지 처리 중 오류 발생: {ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                AppLogger.Error("PanelUI", $"메시지 처리 실패: {ex.Message}");
             }
         }
 
@@ -533,8 +518,9 @@ namespace eft_where_am_i
             // jsExecutor가 아직 초기화되지 않은 경우 무시
             if (jsExecutor == null) return;
 
-            // 데드존 auto-pan 스크립트 재주입 (새 페이지 로드 시)
+            // 상시 주입 스크립트 재주입 (새 페이지 로드 시)
             await jsExecutor.ExecuteScriptAsync(Constants.DEAD_ZONE_AUTO_PAN_SCRIPT);
+            await jsExecutor.ExecuteScriptAsync(Constants.FLOOR_DETECTION_SCRIPT);
 
             // 퀘스트 컨테이너 로드 대기 (DOM 준비 완료까지 대기)
             bool containerReady = await jsExecutor.WaitForQuestContainerAsync(15000);
@@ -556,7 +542,7 @@ namespace eft_where_am_i
                 if (!whereAmIClick)
                 {
                     whereAmIClick = true;
-                    await jsExecutor.ClickButtonAsync(Constants.WHERE_AM_I_BUTTON_SELECTOR);
+                    await jsExecutor.ClickButtonAsync(SelectorConfig.WhereAmIButton);
                     await Task.Delay(300);
                 }
 
@@ -591,7 +577,7 @@ namespace eft_where_am_i
             // UI 패널(WhereAmIPanel)의 ComboBox 상태도 함께 변경
             if (webView2_panel_ui.CoreWebView2 != null)
             {
-                _ = webView2_panel_ui.ExecuteScriptAsync($"document.getElementById('mapSelect').value = '{mapName}';");
+                _ = webView2_panel_ui.ExecuteScriptAsync($"document.getElementById('mapSelect').value = {JavaScriptExecutor.JsLiteral(mapName)};");
             }
 
             // SPA 라우팅으로 맵이 실제 변경된 경우에만 각종 초기화 작업 재개
@@ -657,7 +643,7 @@ namespace eft_where_am_i
             {
                 if (isHidden)
                 {
-                    await jsExecutor.ClickButtonAsync(Constants.HIDE_SHOW_PANNE_BUTTON_SELECTOR);
+                    await jsExecutor.ClickButtonAsync(SelectorConfig.HideShowPanelButton);
                 }
                 else
                 {
@@ -683,7 +669,9 @@ namespace eft_where_am_i
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"설정을 로드하는 동안 오류가 발생했습니다: {ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                // 스크린샷 폴더 자동 탐지 실패는 첫 실행에서 흔합니다.
+                // 설정 화면의 "Auto Find" 가 별도로 결과를 알려주므로 여기서는 로그만 남깁니다.
+                AppLogger.Warn("WhereAmI", $"설정 로드 중 경고: {ex.Message}");
             }
         }
         private void SaveSettings()
@@ -694,7 +682,7 @@ namespace eft_where_am_i
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"설정을 저장하는 동안 오류가 발생했습니다: {ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                AppLogger.Error("WhereAmI", $"설정 저장 실패: {ex.Message}");
             }
         }
 
@@ -719,15 +707,44 @@ namespace eft_where_am_i
         private async void WmiInitialize()
         {
             await Task.Delay(4000);
-            await jsExecutor.ClickButtonAsync(Constants.FULL_SCREEN_BUTTON_SELECTOR);
+            await jsExecutor.ClickButtonAsync(SelectorConfig.FullScreenButton);
             if (!whereAmIClick)
             {
                 whereAmIClick = true;
-                await jsExecutor.ClickButtonAsync(Constants.WHERE_AM_I_BUTTON_SELECTOR);
+                await jsExecutor.ClickButtonAsync(SelectorConfig.WhereAmIButton);
                 await Task.Delay(500);
             }
             await jsExecutor.ExecuteScriptAsync(Constants.ADD_DIRECTION_INDICATORS_SCRIPT);
             await jsExecutor.ExecuteScriptAsync(Constants.DEAD_ZONE_AUTO_PAN_SCRIPT);
+            await jsExecutor.ExecuteScriptAsync(Constants.FLOOR_DETECTION_SCRIPT);
+        }
+
+        /// <summary>
+        /// 스크린샷 1건 처리를 직렬화합니다. 연사로 찍으면 이전 처리가 끝나기 전에
+        /// 다음 처리가 들어와 입력창을 서로 덮어쓰기 때문입니다.
+        /// </summary>
+        private readonly SemaphoreSlim checkLocationGate = new SemaphoreSlim(1, 1);
+
+        private async Task RunCheckLocationAsync()
+        {
+            if (!await checkLocationGate.WaitAsync(0))
+            {
+                AppLogger.Debug("WhereAmI", "이전 위치 확인이 진행 중이라 이번 요청은 건너뜁니다.");
+                return;
+            }
+
+            try
+            {
+                await CheckLocationAsync();
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Error("WhereAmI", $"위치 확인 실패: {ex.Message}");
+            }
+            finally
+            {
+                checkLocationGate.Release();
+            }
         }
 
         private async Task CheckLocationAsync()
@@ -738,14 +755,14 @@ namespace eft_where_am_i
             if (!await jsExecutor.CheckInputAble())
             {
                 whereAmIClick = true;
-                await jsExecutor.ClickButtonAsync(Constants.WHERE_AM_I_BUTTON_SELECTOR);
+                await jsExecutor.ClickButtonAsync(SelectorConfig.WhereAmIButton);
                 await Task.Delay(500);
             }
 
-            string filenameWithoutExt = screenshot.Replace(".png", "");
+            string filenameWithoutExt = Path.GetFileNameWithoutExtension(screenshot);
             await jsExecutor.SetInputValueAsync("input[type=\"text\"]", filenameWithoutExt);
 
-            // Z좌표 파싱 후 자동 층 전환
+            // 좌표 파싱 후 자동 층 전환
             await AutoSwitchFloorAsync(filenameWithoutExt);
 
             // 마커 렌더링 대기 후 데드존 auto-pan (설정이 활성화된 경우에만)
@@ -756,45 +773,245 @@ namespace eft_where_am_i
             }
         }
 
-        private async Task AutoSwitchFloorAsync(string filename)
+        /// <summary>
+        /// 층 레이어를 클릭하고, 실제로 매칭된 라벨을 맵별로 기억해 둡니다.
+        ///
+        /// floor_db 는 "Ground"/"Underground" 같은 논리적 이름을 쓰는데 tarkov-market 라벨은
+        /// 맵마다 "Main"/"Basement" 등으로 다릅니다. 맵 데이터를 추측해서 채워 넣는 대신,
+        /// 실제로 통한 라벨을 관측해서 다음부터 그것을 먼저 시도합니다.
+        /// </summary>
+        private async Task ClickFloorAndLearnAsync(string mapName, string floorName)
         {
-            if (floorManager == null) return;
+            string key = $"{mapName}/{floorName}";
 
+            var candidates = new List<string>();
+            if (appSettings.learned_floor_labels.TryGetValue(key, out var learned)
+                && !string.IsNullOrWhiteSpace(learned))
+            {
+                candidates.Add(learned);
+            }
+
+            foreach (var candidate in FloorManager.GetLabelCandidates(floorName))
+            {
+                if (!candidates.Contains(candidate, StringComparer.OrdinalIgnoreCase))
+                    candidates.Add(candidate);
+            }
+
+            var result = await jsExecutor.ClickFloorByFirstMatchAsync(candidates.ToArray());
+
+            if (result.Matched && !string.IsNullOrWhiteSpace(result.MatchedName))
+            {
+                if (!appSettings.learned_floor_labels.TryGetValue(key, out var stored)
+                    || !string.Equals(stored, result.MatchedName, StringComparison.Ordinal))
+                {
+                    appSettings.learned_floor_labels[key] = result.MatchedName;
+                    SaveSettings();
+                    AppLogger.Info("Floor", $"층 라벨 학습: {key} -> {result.MatchedName}");
+                }
+            }
+        }
+
+        #region 자동 스크린샷
+
+        private void InitializeAutoScreenshot()
+        {
+            autoScreenshot = new AutoScreenshotService
+            {
+                IntervalSeconds = appSettings.auto_screenshot_interval_sec,
+            };
+            autoScreenshot.SetKeyFromName(appSettings.auto_screenshot_key);
+
+            if (appSettings.auto_screenshot_capture)
+            {
+                // 자동 촬영은 스크린샷 감지가 켜져 있어야 의미가 있습니다.
+                EnsureScreenshotWatcherForCapture();
+                autoScreenshot.Start();
+            }
+        }
+
+        /// <summary>
+        /// 자동 촬영을 켤 때 스크린샷 감지가 꺼져 있으면 같이 켜줍니다.
+        /// (찍기만 하고 읽지 않으면 아무 일도 일어나지 않으므로)
+        /// </summary>
+        private void EnsureScreenshotWatcherForCapture()
+        {
+            if (appSettings.auto_screenshot_detection) return;
+
+            appSettings.auto_screenshot_detection = true;
+            SaveSettings();
+            UpdateWatcherState(true);
+
+            if (webView2_panel_ui.CoreWebView2 != null)
+                _ = webView2_panel_ui.ExecuteScriptAsync("setCheckboxState(true)");
+
+            AppLogger.Info("AutoScreenshot", "자동 촬영을 위해 스크린샷 감지를 함께 켰습니다.");
+        }
+
+        private void UpdateAutoScreenshotState(bool isEnabled)
+        {
+            appSettings.auto_screenshot_capture = isEnabled;
+            SaveSettings();
+
+            if (autoScreenshot == null) return;
+
+            if (isEnabled)
+            {
+                EnsureScreenshotWatcherForCapture();
+                autoScreenshot.Start();
+            }
+            else
+            {
+                autoScreenshot.Stop();
+            }
+        }
+
+        #endregion
+
+        #region 모바일 레이더
+
+        private void InitializeMobileRadar()
+        {
+            radarServer = new MobileRadarServer();
+
+            // 접근 코드는 한 번 만들어 두고 계속 씁니다. (폰 북마크가 유지되도록)
+            if (string.IsNullOrWhiteSpace(appSettings.mobile_radar_token))
+            {
+                appSettings.mobile_radar_token = MobileRadarServer.GenerateToken();
+                SaveSettings();
+            }
+
+            // 폰이 실제로 보고 있을 때만 캡처합니다. 아무도 안 보면 아무 일도 하지 않습니다.
+            radarCaptureTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            radarCaptureTimer.Tick += async (s, e) => await CaptureRadarFrameAsync();
+
+            if (appSettings.mobile_radar_enabled)
+            {
+                UpdateMobileRadarState(true);
+            }
+        }
+
+        private void UpdateMobileRadarState(bool isEnabled)
+        {
+            appSettings.mobile_radar_enabled = isEnabled;
+            SaveSettings();
+
+            if (radarServer == null) return;
+
+            if (isEnabled)
+            {
+                try
+                {
+                    radarServer.Start(appSettings.mobile_radar_port, appSettings.mobile_radar_token);
+                    radarCaptureTimer?.Start();
+                }
+                catch (Exception ex)
+                {
+                    appSettings.mobile_radar_enabled = false;
+                    SaveSettings();
+
+                    MessageBox.Show(
+                        $"모바일 레이더를 시작하지 못했습니다.\n\n{ex.Message}\n\n" +
+                        $"다른 프로그램이 {appSettings.mobile_radar_port}번 포트를 쓰고 있다면 설정에서 포트를 바꿔주세요.",
+                        "모바일 레이더", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            }
+            else
+            {
+                radarCaptureTimer?.Stop();
+                radarServer.Stop();
+            }
+
+            PushRadarStatusToUi();
+        }
+
+        /// <summary>현재 레이더 접속 주소를 패널 UI 로 보냅니다.</summary>
+        private void PushRadarStatusToUi()
+        {
+            if (webView2_panel_ui.CoreWebView2 == null || radarServer == null) return;
+
+            string url = radarServer.IsRunning ? radarServer.GetPrimaryUrl() : string.Empty;
+            _ = webView2_panel_ui.ExecuteScriptAsync(
+                $"setRadarStatus({(radarServer.IsRunning ? "true" : "false")}, {JavaScriptExecutor.JsLiteral(url)})");
+        }
+
+        /// <summary>
+        /// WebView2 화면을 JPEG 으로 캡처해 레이더 서버에 게시합니다.
+        /// 이미 마커까지 그려진 화면이라 폰에서는 그대로 보기만 하면 됩니다.
+        /// </summary>
+        private async Task CaptureRadarFrameAsync()
+        {
+            if (radarServer == null || !radarServer.IsRunning) return;
+            if (radarCaptureInFlight) return;
+            if (!radarServer.HasRecentClient) return;      // 아무도 안 보면 캡처하지 않음
+            if (webView2?.CoreWebView2 == null) return;
+
+            radarCaptureInFlight = true;
             try
             {
-                // 파일명 형식: YYYY-MM-DD[HH-MM]_x, y, z_quatX, quatY, quatZ, quatW_speed
-                // 예: 2026-01-10[03-59]_-318.44, 24.84, -107.49_0.00000, 0.82497, 0.00000, 0.56518_3.98 (0)
-                //           [0]              [1]                    [2]                         [3]
-                string[] parts = filename.Split('_');
-                if (parts.Length < 2) return;
+                using var buffer = new MemoryStream();
+                await webView2.CoreWebView2.CapturePreviewAsync(
+                    CoreWebView2CapturePreviewImageFormat.Jpeg, buffer);
 
-                // parts[1]이 좌표 부분 (예: "-318.44, 24.84, -107.49")
-                string[] coords = parts[1].Split(',');
-                if (coords.Length < 3) return;
-
-                // 각 좌표에서 공백 trim 필요
-                if (!double.TryParse(coords[0].Trim(), System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out double xCoord))
-                    return;
-
-                if (!double.TryParse(coords[1].Trim(), System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out double yCoord))
-                    return;
-
-                if (!double.TryParse(coords[2].Trim(), System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out double zCoord))
-                    return;
-
-                string floorName = floorManager.GetFloorName(appSettings.latest_map, xCoord, yCoord, zCoord);
-                if (!string.IsNullOrEmpty(floorName))
-                {
-                    await Task.Delay(500); // Wait for marker to appear
-                    await jsExecutor.ClickFloorAsync(floorName);
-                }
+                radarServer.CurrentMapLabel = MapCatalog.GetDisplayName(
+                    appSettings.latest_map, appSettings.language);
+                radarServer.PublishFrame(buffer.ToArray());
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Floor] Auto floor switch error: {ex.Message}");
+                AppLogger.Debug("Radar", $"화면 캡처 실패: {ex.Message}");
+            }
+            finally
+            {
+                radarCaptureInFlight = false;
+            }
+        }
+
+        #endregion
+
+        /// <summary>
+        /// 스크린샷 좌표로 현재 층을 판별하고 해당 층 레이어를 클릭합니다.
+        ///
+        /// 좌표계 주의: 타르코프는 Unity 기반이라 <b>y 가 높이</b>입니다.
+        /// 그리고 zone.polygon 은 게임 좌표가 아니라 <b>맵 CSS 픽셀 좌표</b>라서
+        /// 폴리곤 판정은 마커 위치를 아는 브라우저(<c>__detectFloor</c>)에 위임합니다.
+        /// </summary>
+        private async Task AutoSwitchFloorAsync(string filename)
+        {
+            if (floorManager == null || jsExecutor == null) return;
+
+            try
+            {
+                if (!ScreenshotCoordinates.TryParse(filename, out var coords))
+                {
+                    AppLogger.Debug("Floor", $"좌표를 파싱하지 못했습니다: {filename}");
+                    return;
+                }
+
+                string mapName = appSettings.latest_map;
+                string floorName;
+
+                if (floorManager.HasZones(mapName))
+                {
+                    // 마커가 그려질 때까지 대기한 뒤 브라우저 쪽에서 폴리곤 판정
+                    await Task.Delay(500);
+                    floorName = await jsExecutor.DetectFloorAsync(floorManager.GetZonesJson(mapName), coords.Height)
+                                ?? floorManager.GetDefaultFloor(mapName);
+                }
+                else
+                {
+                    // zone 이 없는 맵은 높이 범위만으로 판정
+                    floorName = floorManager.GetFloorNameByHeight(mapName, coords.Height);
+                    if (!string.IsNullOrEmpty(floorName))
+                        await Task.Delay(500);
+                }
+
+                if (string.IsNullOrEmpty(floorName)) return;
+
+                await ClickFloorAndLearnAsync(mapName, floorName);
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Error("Floor", $"자동 층 전환 실패: {ex.Message}");
             }
         }
 
@@ -813,7 +1030,7 @@ namespace eft_where_am_i
                     SaveSettings();
 
                     // (중요) UI에도 반영
-                    _ = webView2_panel_ui.ExecuteScriptAsync($"setCheckboxState(false)");
+                    _ = webView2_panel_ui.ExecuteScriptAsync("setCheckboxState(false)");
                     return;
                 }
 
@@ -852,16 +1069,28 @@ namespace eft_where_am_i
 
         private async void OnScreenshotCreated(object sender, FileSystemEventArgs e)
         {
-            // 파일 생성 후 사용 가능해질 때까지 잠시 대기
-            await Task.Delay(500);
+            try
+            {
+                // 파일 생성 후 사용 가능해질 때까지 잠시 대기
+                await Task.Delay(500);
 
-            // UI 스레드에서 CheckLocationAsync 호출
-            this.Invoke(new MethodInvoker(async () => await CheckLocationAsync()));
+                if (IsDisposed || Disposing || !IsHandleCreated) return;
+
+                // WebView2 호출은 UI 스레드에서만 유효합니다.
+                if (InvokeRequired)
+                    BeginInvoke(new Action(() => _ = RunCheckLocationAsync()));
+                else
+                    await RunCheckLocationAsync();
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Error("WhereAmI", $"스크린샷 감지 처리 실패: {ex.Message}");
+            }
         }
 
         private async void btnHideShowPannel_Click(object sender, EventArgs e)
         {
-            await jsExecutor.ClickButtonAsync(Constants.HIDE_SHOW_PANNE_BUTTON_SELECTOR);
+            await jsExecutor.ClickButtonAsync(SelectorConfig.HideShowPanelButton);
         }
 
         private async Task SavePanelStateAsync()
@@ -874,12 +1103,12 @@ namespace eft_where_am_i
 
         private async void btnFullScreen_Click(object sender, EventArgs e)
         {
-            await jsExecutor.ClickButtonAsync(Constants.FULL_SCREEN_BUTTON_SELECTOR);
+            await jsExecutor.ClickButtonAsync(SelectorConfig.FullScreenButton);
         }
 
         private async void btnForceRun_Click(object sender, EventArgs e)
         {
-            await CheckLocationAsync();
+            await RunCheckLocationAsync();
         }
 
         private async Task RestoreQuestsAsync(string mapName)
@@ -895,7 +1124,7 @@ namespace eft_where_am_i
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"퀘스트 복원 중 오류: {ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                AppLogger.Error("Quest", $"퀘스트 복원 실패: {ex.Message}");
             }
         }
 
@@ -1042,27 +1271,57 @@ namespace eft_where_am_i
 
             try
             {
-                var pngFiles = Directory.GetFiles(screenshotPath, "*.png");
-                if (pngFiles.Length == 0) return;
+                var candidates = new DirectoryInfo(screenshotPath).GetFiles("*.png");
 
-                AppLogger.Info("ScreenshotCleanup", $"Cleaning up {pngFiles.Length} PNG file(s)");
-                int deleted = 0, failed = 0;
-                foreach (var file in pngFiles)
+                // 이번 레이드에서 생긴 파일만 지웁니다.
+                // 예전에는 폴더의 PNG 를 전부 지워서 보관해 둔 스크린샷까지 날아갔습니다.
+                if (raidStartedUtc.HasValue)
                 {
-                    try { File.Delete(file); deleted++; }
+                    var since = raidStartedUtc.Value;
+                    candidates = candidates.Where(f => f.LastWriteTimeUtc >= since).ToArray();
+                }
+                else
+                {
+                    AppLogger.Warn("ScreenshotCleanup",
+                        "레이드 시작 시각을 몰라 정리를 건너뜁니다. (맵 자동 감지가 꺼져 있었을 수 있습니다)");
+                    return;
+                }
+
+                if (candidates.Length == 0) return;
+
+                AppLogger.Info("ScreenshotCleanup", $"이번 레이드 스크린샷 {candidates.Length}개 정리");
+                int deleted = 0, failed = 0;
+                foreach (var file in candidates)
+                {
+                    try
+                    {
+                        // 되돌릴 수 있도록 완전 삭제 대신 휴지통으로 보냅니다.
+                        Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(
+                            file.FullName,
+                            Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
+                            Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
+                        deleted++;
+                    }
                     catch (Exception ex)
                     {
-                        AppLogger.Warn("ScreenshotCleanup", $"Failed: {Path.GetFileName(file)} - {ex.Message}");
+                        AppLogger.Warn("ScreenshotCleanup", $"삭제 실패: {file.Name} - {ex.Message}");
                         failed++;
                     }
                 }
-                AppLogger.Info("ScreenshotCleanup", $"Done. Deleted: {deleted}, Failed: {failed}");
+                AppLogger.Info("ScreenshotCleanup", $"완료. 휴지통으로 이동: {deleted}, 실패: {failed}");
             }
             catch (Exception ex)
             {
-                AppLogger.Error("ScreenshotCleanup", $"Cleanup error: {ex.Message}");
+                AppLogger.Error("ScreenshotCleanup", $"정리 실패: {ex.Message}");
+            }
+            finally
+            {
+                raidStartedUtc = null;
             }
         }
+
+        /// <summary>이번 레이드가 시작된 시각. 스크린샷 자동 정리 범위를 한정하는 데 씁니다.</summary>
+        private DateTime? raidStartedUtc;
 
         private void OnMapDetectedFromLog(string mapName)
         {
@@ -1073,6 +1332,9 @@ namespace eft_where_am_i
                 return;
             }
 
+            // 같은 맵으로 재입장하는 경우도 있으므로 맵 전환 여부와 무관하게 기록합니다.
+            raidStartedUtc = DateTime.UtcNow;
+
             // Only switch if it's a different map
             if (string.Equals(appSettings.latest_map, mapName, StringComparison.OrdinalIgnoreCase))
                 return;
@@ -1080,7 +1342,7 @@ namespace eft_where_am_i
             // Update the panel UI dropdown
             if (webView2_panel_ui.CoreWebView2 != null)
             {
-                _ = webView2_panel_ui.ExecuteScriptAsync($"document.getElementById('mapSelect').value = '{mapName}';");
+                _ = webView2_panel_ui.ExecuteScriptAsync($"document.getElementById('mapSelect').value = {JavaScriptExecutor.JsLiteral(mapName)};");
             }
 
             HandleMapSelection(mapName);
@@ -1127,7 +1389,12 @@ namespace eft_where_am_i
 
             if (FloorHotkeyMap.TryGetValue(keyIndex, out string[] candidates))
             {
-                await jsExecutor.ClickFloorByFirstMatchAsync(candidates);
+                var result = await jsExecutor.ClickFloorByFirstMatchAsync(candidates);
+                if (!result.Matched && result.AvailableLabels.Length > 0)
+                {
+                    AppLogger.Debug("Floor",
+                        $"핫키 {keyIndex} 에 해당하는 층이 없습니다. 이 맵의 라벨: [{string.Join(", ", result.AvailableLabels)}]");
+                }
             }
         }
 
@@ -1161,16 +1428,6 @@ namespace eft_where_am_i
             }
 
             panel1.Height = _posSliding;
-        }
-
-        private void webView2_panel_ui_Click(object sender, EventArgs e)
-        {
-
-        }
-
-        private void webView2_Click(object sender, EventArgs e)
-        {
-
         }
     }
 }

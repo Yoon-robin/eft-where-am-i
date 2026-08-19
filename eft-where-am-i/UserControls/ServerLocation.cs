@@ -1,9 +1,10 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -16,9 +17,41 @@ namespace eft_where_am_i
     {
         private string OFFLINE_MSG = "오프라인 / 매칭안됨";
         private dynamic _langStrings;
-        
-        // IP 별 위치 정보를 저장하는 캐시 딕셔너리 (앱 구동 중 유지)
-        private Dictionary<string, dynamic> _geoCache = new Dictionary<string, dynamic>();
+
+        /// <summary>ip-api.com 응답</summary>
+        private sealed class GeoInfo
+        {
+            [JsonProperty("status")] public string Status { get; set; }
+            [JsonProperty("message")] public string Message { get; set; }
+            [JsonProperty("country")] public string Country { get; set; }
+            [JsonProperty("regionName")] public string RegionName { get; set; }
+            [JsonProperty("city")] public string City { get; set; }
+
+            public bool IsSuccess => string.Equals(Status, "success", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // IP 별 위치 정보를 저장하는 캐시 (앱 구동 중 유지)
+        private readonly Dictionary<string, GeoInfo> _geoCache = new Dictionary<string, GeoInfo>();
+
+        // 로그 파일별 IP 파싱 결과 캐시. 파일이 바뀌지 않았으면 다시 스캔하지 않습니다.
+        private readonly Dictionary<string, (long length, DateTime lastWrite, string ip)> _logIpCache =
+            new Dictionary<string, (long, DateTime, string)>(StringComparer.OrdinalIgnoreCase);
+
+        // 매 줄마다 Regex 를 새로 만들지 않도록 컴파일된 정적 인스턴스를 씁니다.
+        private static readonly Regex IpRegex = new Regex(
+            @"Ip:\s?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})", RegexOptions.Compiled);
+
+        // WebClient 는 폐기된 API 라 HttpClient 로 교체했습니다.
+        // ip-api.com 무료 플랜은 HTTPS 를 지원하지 않아 http 를 씁니다.
+        // 서버 위치 조회용 공개 정보만 오가며 사용자 데이터는 전송하지 않습니다.
+        private static readonly HttpClient Http = CreateHttpClient();
+
+        private static HttpClient CreateHttpClient()
+        {
+            var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("EFT-Where-Am-I-Desktop-App");
+            return client;
+        }
 
         public ServerLocation()
         {
@@ -29,10 +62,10 @@ namespace eft_where_am_i
                           ControlStyles.UserPaint |
                           ControlStyles.OptimizedDoubleBuffer, true);
 
-            typeof(DataGridView).InvokeMember("DoubleBuffered", 
-                System.Reflection.BindingFlags.NonPublic | 
-                System.Reflection.BindingFlags.Instance | 
-                System.Reflection.BindingFlags.SetProperty, 
+            typeof(DataGridView).InvokeMember("DoubleBuffered",
+                System.Reflection.BindingFlags.NonPublic |
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.SetProperty,
                 null, dataGridViewHistory, new object[] { true });
 
             LoadLanguage();
@@ -56,7 +89,7 @@ namespace eft_where_am_i
                     string json = File.ReadAllText(jsonPath);
                     _langStrings = JsonConvert.DeserializeObject(json);
                 }
-                
+
                 if (_langStrings != null)
                 {
                     ApplyTranslations();
@@ -79,21 +112,21 @@ namespace eft_where_am_i
                 this.Invoke(new Action(ApplyTranslations));
                 return;
             }
-            
+
             groupBox1.Text = GetString("serverLocation_Title", groupBox1.Text);
             lblHistory.Text = GetString("serverLocation_HistoryTitle", lblHistory.Text);
             btnFindLatest.Text = GetString("serverLocation_BtnFindLatest", btnFindLatest.Text);
-            
+
             colCheck.HeaderText = GetString("serverLocation_ColCheck", colCheck.HeaderText);
             colCheck.Text = GetString("serverLocation_BtnCheck", colCheck.Text);
             colDate.HeaderText = GetString("serverLocation_ColDate", colDate.HeaderText);
             colIp.HeaderText = GetString("serverLocation_ColIp", colIp.HeaderText);
             colCity.HeaderText = GetString("serverLocation_ColCity", colCity.HeaderText);
             colFolder.HeaderText = GetString("serverLocation_ColFolder", colFolder.HeaderText);
-            
+
             string oldOfflineMsg = OFFLINE_MSG;
             OFFLINE_MSG = GetString("serverLocation_OfflineCol", OFFLINE_MSG);
-            
+
             // 기존 표에 들어가 있는 오프라인 메시지도 실시간 변경
             if (oldOfflineMsg != OFFLINE_MSG && dataGridViewHistory.Rows.Count > 0)
             {
@@ -105,12 +138,12 @@ namespace eft_where_am_i
                     }
                 }
             }
-            
+
             if (lblCurrentLogFile.Text.Contains("Current Log") || lblCurrentLogFile.Text.Contains("선택된 로그"))
             {
                 lblCurrentLogFile.Text = GetString("serverLocation_CurrentLog", "Current Log: ") + "None";
             }
-            
+
             ClearGeoLocationLabels();
             ApplyTheme();
         }
@@ -123,11 +156,9 @@ namespace eft_where_am_i
                 return;
             }
 
-            bool isDark = string.Equals(SettingsHandler.Instance.GetSettings().theme_mode, "dark", StringComparison.OrdinalIgnoreCase);
-            Color background = isDark ? Color.FromArgb(30, 30, 30) : SystemColors.Control;
-            Color foreground = isDark ? Color.White : SystemColors.ControlText;
-            Color surface = isDark ? Color.FromArgb(38, 38, 38) : Color.White;
-            Color muted = isDark ? Color.FromArgb(180, 180, 180) : Color.Gray;
+            Color background = AppTheme.Background;
+            Color foreground = AppTheme.Text;
+            Color surface = AppTheme.Surface;
 
             this.BackColor = background;
             splitContainer1.BackColor = background;
@@ -144,19 +175,20 @@ namespace eft_where_am_i
             labelRegionName.ForeColor = foreground;
             labelCityName.ForeColor = foreground;
 
-            btnFindLatest.BackColor = isDark ? Color.FromArgb(55, 55, 55) : SystemColors.Control;
-            btnFindLatest.ForeColor = foreground;
-            btnFindLatest.FlatStyle = FlatStyle.Flat;
-            btnFindLatest.FlatAppearance.BorderColor = isDark ? Color.FromArgb(90, 90, 90) : SystemColors.ControlDark;
+            AppTheme.StyleButton(btnFindLatest, primary: true);
 
             dataGridViewHistory.BackgroundColor = surface;
+            dataGridViewHistory.BorderStyle = BorderStyle.None;
             dataGridViewHistory.DefaultCellStyle.BackColor = surface;
             dataGridViewHistory.DefaultCellStyle.ForeColor = foreground;
-            dataGridViewHistory.DefaultCellStyle.SelectionBackColor = isDark ? Color.FromArgb(70, 70, 70) : SystemColors.Highlight;
-            dataGridViewHistory.DefaultCellStyle.SelectionForeColor = Color.White;
-            dataGridViewHistory.GridColor = isDark ? Color.FromArgb(70, 70, 70) : SystemColors.ControlDark;
-            dataGridViewHistory.ColumnHeadersDefaultCellStyle.BackColor = isDark ? Color.FromArgb(48, 48, 48) : SystemColors.Control;
-            dataGridViewHistory.ColumnHeadersDefaultCellStyle.ForeColor = foreground;
+            dataGridViewHistory.DefaultCellStyle.SelectionBackColor = AppTheme.GridSelection;
+            dataGridViewHistory.DefaultCellStyle.SelectionForeColor = AppTheme.TextStrong;
+            dataGridViewHistory.GridColor = AppTheme.Border;
+            dataGridViewHistory.ColumnHeadersDefaultCellStyle.BackColor = AppTheme.SurfaceAlt;
+            dataGridViewHistory.ColumnHeadersDefaultCellStyle.ForeColor = AppTheme.Muted;
+            dataGridViewHistory.ColumnHeadersDefaultCellStyle.SelectionBackColor = AppTheme.SurfaceAlt;
+            dataGridViewHistory.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
+            dataGridViewHistory.RowHeadersVisible = false;
             dataGridViewHistory.EnableHeadersVisualStyles = false;
 
             foreach (Control control in Controls)
@@ -196,8 +228,14 @@ namespace eft_where_am_i
 
                 dataGridViewHistory.Rows.Clear();
 
-                await Task.Run(() =>
+                string checkLabel = GetString("serverLocation_BtnCheck", "확인하기");
+
+                // 파일 스캔은 백그라운드에서 끝내고 그리드에는 한 번에 반영합니다.
+                // (예전에는 폴더 하나당 Invoke 를 한 번씩 호출했습니다)
+                var rows = await Task.Run(() =>
                 {
+                    var collected = new List<object[]>();
+
                     var dirs = new DirectoryInfo(logsFolderPath)
                         .GetDirectories()
                         .OrderByDescending(d => d.CreationTime)
@@ -218,30 +256,35 @@ namespace eft_where_am_i
                         }
 
                         // 캐시에 있는 경우 도시명 바로 주입
-                        if (ip != OFFLINE_MSG && _geoCache.ContainsKey(ip))
+                        if (ip != OFFLINE_MSG && _geoCache.TryGetValue(ip, out var cachedGeo))
                         {
-                            cityVal = _geoCache[ip]["city"]?.ToString();
+                            cityVal = cachedGeo.City;
                         }
 
-                        this.Invoke((MethodInvoker)delegate
+                        collected.Add(new object[]
                         {
-                            dataGridViewHistory.Rows.Add(
-                                GetString("serverLocation_BtnCheck", "확인하기"), 
-                                dir.CreationTime.ToString("yyyy-MM-dd HH:mm:ss"), 
-                                ip, 
-                                cityVal, /* 새로운 City 컬럼 (캐시에 없으면 공백) */
-                                dir.Name
-                            );
+                            checkLabel,
+                            dir.CreationTime.ToString("yyyy-MM-dd HH:mm:ss"),
+                            ip,
+                            cityVal,
+                            dir.Name
                         });
                     }
+
+                    return collected;
                 });
+
+                foreach (var row in rows)
+                {
+                    dataGridViewHistory.Rows.Add(row);
+                }
 
                 if (dataGridViewHistory.Rows.Count > 0)
                 {
                     var firstRow = dataGridViewHistory.Rows[0];
                     string latestIp = firstRow.Cells["colIp"].Value?.ToString();
                     string folderName = firstRow.Cells["colFolder"].Value?.ToString();
-                    
+
                     lblCurrentLogFile.Text = GetString("serverLocation_CurrentLog", "선택된 로그: ") + $"{folderName} (*application*.log)";
 
                     if (string.IsNullOrEmpty(latestIp) || !IPAddress.TryParse(latestIp, out _))
@@ -258,37 +301,57 @@ namespace eft_where_am_i
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"오류 발생: {ex.Message}");
+                AppLogger.Error("ServerLocation", $"접속 기록 로드 실패: {ex.Message}");
             }
         }
 
+        /// <summary>
+        /// 로그 파일에서 마지막으로 매칭된 서버 IP 를 찾습니다.
+        /// 파일 크기와 수정 시각이 그대로면 이전 결과를 재사용합니다.
+        /// (갱신할 때마다 로그 폴더 전체를 처음부터 다시 스캔하던 문제)
+        /// </summary>
         private string GetMatchedIpAddress(string logFilePath)
         {
             try
             {
+                var info = new FileInfo(logFilePath);
+
+                lock (_logIpCache)
+                {
+                    if (_logIpCache.TryGetValue(logFilePath, out var cached)
+                        && cached.length == info.Length
+                        && cached.lastWrite == info.LastWriteTimeUtc)
+                    {
+                        return cached.ip;
+                    }
+                }
+
                 string matchedIpAddress = null;
 
-                using (FileStream fileStream = new FileStream(logFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var fileStream = new FileStream(logFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var reader = new StreamReader(fileStream))
                 {
-                    using (StreamReader reader = new StreamReader(fileStream))
+                    string line;
+                    while ((line = reader.ReadLine()) != null)
                     {
-                        string line;
-                        while ((line = reader.ReadLine()) != null)
+                        Match match = IpRegex.Match(line);
+                        if (match.Success)
                         {
-                            Match match = Regex.Match(line, @"Ip:\s?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})");
-
-                            if (match.Success)
-                            {
-                                matchedIpAddress = match.Groups[1].Value;
-                            }
+                            matchedIpAddress = match.Groups[1].Value;
                         }
                     }
                 }
 
+                lock (_logIpCache)
+                {
+                    _logIpCache[logFilePath] = (info.Length, info.LastWriteTimeUtc, matchedIpAddress);
+                }
+
                 return matchedIpAddress;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                AppLogger.Debug("ServerLocation", $"로그 IP 파싱 실패 ({Path.GetFileName(logFilePath)}): {ex.Message}");
                 return null;
             }
         }
@@ -330,7 +393,7 @@ namespace eft_where_am_i
             try
             {
                 labelIpAddress.Text = GetString("serverLocation_IpText", "IP 주소 : ") + ipAddress;
-                
+
                 if (!IPAddress.TryParse(ipAddress, out _))
                 {
                     labelCountryName.Text = GetString("serverLocation_OfflineInfo", "해당 세션은 오프라인 게임이거나 아직 서버가 잡히지 않았습니다.");
@@ -339,50 +402,40 @@ namespace eft_where_am_i
                     return;
                 }
 
-                dynamic geoInfo = null;
+                GeoInfo geoInfo;
 
                 // 캐시 확인
-                if (_geoCache.ContainsKey(ipAddress))
+                if (!_geoCache.TryGetValue(ipAddress, out geoInfo))
                 {
-                    geoInfo = _geoCache[ipAddress];
-                }
-                else
-                {
-                    // 비동기 API 요청 (UI 멈춤 방지)
                     string apiUrl = $"http://ip-api.com/json/{ipAddress}";
-                    using (WebClient client = new WebClient())
+                    string response = await Http.GetStringAsync(apiUrl);
+                    geoInfo = JsonConvert.DeserializeObject<GeoInfo>(response);
+
+                    if (geoInfo != null && geoInfo.IsSuccess)
                     {
-                        client.Headers.Add("User-Agent", "EFT-Where-Am-I Desktop App");
-                        string response = await Task.Run(() => client.DownloadString(apiUrl));
-                        geoInfo = JsonConvert.DeserializeObject(response);
-                        
-                        if (geoInfo != null && geoInfo["status"] == "success")
-                        {
-                            _geoCache[ipAddress] = geoInfo; // 딕셔너리에 저장
-                        }
+                        _geoCache[ipAddress] = geoInfo;
                     }
                 }
 
                 if (geoInfo != null)
                 {
-                    if (geoInfo["status"] == "success")
+                    if (geoInfo.IsSuccess)
                     {
-                        labelCountryName.Text = GetString("serverLocation_CountryText", "국가 : ") + geoInfo["country"];
-                        labelRegionName.Text = GetString("serverLocation_RegionText", "지역 : ") + geoInfo["regionName"];
-                        string cityResult = geoInfo["city"]?.ToString();
-                        labelCityName.Text = GetString("serverLocation_CityText", "도시 : ") + cityResult;
+                        labelCountryName.Text = GetString("serverLocation_CountryText", "국가 : ") + geoInfo.Country;
+                        labelRegionName.Text = GetString("serverLocation_RegionText", "지역 : ") + geoInfo.RegionName;
+                        labelCityName.Text = GetString("serverLocation_CityText", "도시 : ") + geoInfo.City;
 
                         if (targetRow != null)
                         {
-                            targetRow.Cells["colCity"].Value = cityResult;
+                            targetRow.Cells["colCity"].Value = geoInfo.City;
                         }
                     }
                     else
                     {
                         labelCountryName.Text = GetString("serverLocation_StatusFail", "상태 : 실패 (API 오류)");
-                        labelRegionName.Text = GetString("serverLocation_Reason", "사유 : ") + geoInfo["message"];
+                        labelRegionName.Text = GetString("serverLocation_Reason", "사유 : ") + geoInfo.Message;
                         labelCityName.Text = GetString("serverLocation_CityText", "도시 : ");
-                        
+
                         if (targetRow != null)
                         {
                             targetRow.Cells["colCity"].Value = "(실패)";
@@ -390,12 +443,13 @@ namespace eft_where_am_i
                     }
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                AppLogger.Warn("ServerLocation", $"위치 조회 실패 ({ipAddress}): {ex.Message}");
                 labelCountryName.Text = GetString("serverLocation_Error", "오류 발생");
                 labelRegionName.Text = GetString("serverLocation_Error", "오류 발생");
                 labelCityName.Text = GetString("serverLocation_Error", "오류 발생");
-                
+
                 if (targetRow != null)
                 {
                     targetRow.Cells["colCity"].Value = "(오류)";

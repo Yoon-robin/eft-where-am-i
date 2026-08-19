@@ -8,418 +8,453 @@
   <script src="../assets/js/i18nextHttpBackend.min.js"></script>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="../assets/css/tailwind.css">
+  <style>
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #page {
+      flex: 1;
+      width: 100%;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 28px 28px 8px;
+    }
+
+    #pageHead {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 22px;
+    }
+
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(430px, 1fr));
+      gap: 14px;
+      align-items: start;
+    }
+
+    /* 경로 카드는 내용이 길어 한 줄 전체를 씁니다 */
+    .card.span-all { grid-column: 1 / -1; }
+
+    .card + .card { margin-top: 0; }
+
+    footer {
+      max-width: 1100px;
+      margin: 0 auto;
+      width: 100%;
+      padding: 20px 28px 26px;
+      text-align: center;
+    }
+
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 22px;
+      margin-bottom: 10px;
+      font-size: 13px;
+      font-weight: 550;
+    }
+
+    #footerText { font-size: 12px; color: var(--faint); }
+
+    .stack { display: flex; flex-direction: column; gap: 10px; }
+
+    .path-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    #deadZoneSlider { flex: 1; min-width: 180px; }
+  </style>
 </head>
-<body class="bg-gray-200 p-6 flex flex-col min-h-screen">
-  <main class="grow">
-  <h1 
-    id="settingPageTitle"
-    class="text-3xl font-semibold mb-8"
-  >
-    Setting Page
-  </h1>
+<body>
 
-  <!-- Language Selection -->
-  <section class="mb-6">
-    <p
-      id="chooseLanguageText"
-      class="mb-2 text-xl"
-    >
-      Choose language and click 'Apply' button.
-    </p>
-    <div class="flex items-center space-x-4">
-      <select id="languageSelect" class="border rounded px-4 py-1.5 text-base bg-white w-64">
-        <option value="en">English</option>
-        <option value="ko">한국어</option>
-      </select>
-      <button 
-        id="applyButton"
-        onclick="applyLanguage()"
-        class="bg-white border rounded py-1.5 px-4 text-base font-medium hover:bg-gray-100"
-      >
-        Apply
-      </button>
-    </div>
-  </section>
+<div id="page">
 
-  <!-- Screenshot Path Settings -->
-  <section class="mb-6">
-    <p id="resetScreenshotPathText" class="mb-2 text-xl">
-      Reset Screenshot Path
-    </p>
-    <div class="flex flex-col items-start space-y-4">
-      <input 
-        type="text"
-        id="screenshotPath"
-        placeholder="Enter path..."
-        class="border rounded px-4 py-1.5 text-base bg-white w-180"
-        readonly
-      />
-      <div class="flex space-x-4">
-      <button 
-        id="changePathButton"
-        onclick="changePath()"
-        class="bg-blue-500 text-white rounded py-1.5 px-4 text-base hover:bg-blue-600"
-      >
-        Change Path
-      </button>
-      <button 
-        id="autoDetectButton"
-        onclick="autoDetect()"
-        class="bg-gray-300 text-gray-800 rounded py-1.5 px-4 text-base hover:bg-gray-400"
-      >
-        Auto Detect
-      </button>
-      <button 
-        id="openFolderButton"
-        onclick="openFolder()"
-        class="bg-gray-300 text-gray-800 rounded py-1.5 px-4 text-base hover:bg-gray-400"
-      >
-        Open Screenshot Folder
-      </button>
-      </div>
-    </div>
-  </section>
+  <div id="pageHead">
+    <h1 id="settingPageTitle" class="h-page">Setting Page</h1>
+    <span class="eyebrow" id="currentVersionLabel">…</span>
+  </div>
 
-  <!-- Log Path Settings -->
-  <section class="mb-6">
-    <p id="resetLogPathText" class="mb-2 text-xl">
-      Log Path Settings
-    </p>
-    <div class="flex flex-col items-start space-y-4">
-      <input
-        type="text"
-        id="logPath"
-        placeholder="Enter path..."
-        class="border rounded px-4 py-1.5 text-base bg-white w-180"
-        readonly
-      />
-      <div class="flex space-x-4">
-      <button
-        id="changeLogPathButton"
-        onclick="changeLogPath()"
-        class="bg-blue-500 text-white rounded py-1.5 px-4 text-base hover:bg-blue-600"
-      >
-        Change Path
-      </button>
-      <button
-        id="autoDetectLogButton"
-        onclick="autoDetectLogPath()"
-        class="bg-gray-300 text-gray-800 rounded py-1.5 px-4 text-base hover:bg-gray-400"
-      >
-        Auto Detect
-      </button>
-      </div>
-    </div>
-  </section>
+  <div id="grid">
 
-  <!-- Dead Zone Percentage Settings -->
-  <section class="mb-6">
-    <p id="deadZoneLabel" class="mb-2 text-xl">
-      Dead Zone Percentage
-    </p>
-    <div class="flex items-center space-x-4">
-      <input
-        type="range"
-        id="deadZoneSlider"
-        min="50"
-        max="99"
-        step="1"
-        value="93"
-        oninput="onDeadZoneChange()"
-        class="w-64"
-      />
-      <span id="deadZoneValue" class="text-base font-medium">93%</span>
-    </div>
-    <div class="mt-4">
-      <p id="themeSectionTitle" class="mb-2 text-lg font-medium">Theme</p>
-      <button
-        id="themeToggleButton"
-        onclick="toggleTheme()"
-        class="border rounded py-1.5 px-4 text-base font-medium bg-white hover:bg-gray-100"
-      >
-        Dark Mode
-      </button>
-    </div>
-  </section>
-
-  <!-- App Version Settings -->
-  <section class="mb-6">
-    <p id="appVersionText" class="mb-2 text-xl">
-      App Version
-    </p>
-    <div class="flex items-center space-x-4">
-      <span id="currentVersionLabel" class="text-base font-medium bg-white border px-4 py-1.5 rounded text-gray-700 min-w-[80px] text-center">...</span>
-      <button 
-        id="checkUpdateButton"
-        onclick="checkUpdate()"
-        class="bg-blue-500 text-white rounded py-1.5 px-4 text-base font-medium hover:bg-blue-600 shadow-sm"
-      >
-        Check for Update
-      </button>
-    </div>
-  </section>
-  </main>
-
-  <!-- Links -->
-  <footer class="mt-auto">
-    <section class="flex justify-center items-center w-full">
-      <div class="flex items-center w-3xl">
-        <div class="flex justify-center items-center w-full">
-          <a 
-            id="howToUseLink"
-            href="https://github.com/karpitony/eft-where-am-i/blob/main/README.md"
-            class="text-blue-600 hover:underline text-base lg:text-lg xl:text-xl font-semibold"
-          >
-            How To Use
-          </a>
+    <!-- 언어 -->
+    <section class="card">
+      <div class="card-head">
+        <div class="card-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><path d="M2 12h20"/>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+          </svg>
         </div>
-        <div class="flex justify-center items-center w-full">
-          <a 
-            id="bugLink"
-            href="https://github.com/karpitony/eft-where-am-i/issues"
-            class="text-blue-600 hover:underline text-base lg:text-lg xl:text-xl font-semibold"
-          >
-            Bug Report
-          </a>
+        <div class="h-section" id="chooseLanguageText">Choose language and click 'Apply' button.</div>
+      </div>
+
+      <div class="field">
+        <select id="languageSelect" class="select grow">
+          <option value="en">English</option>
+          <option value="ko">한국어</option>
+        </select>
+        <button id="applyButton" class="btn btn-primary" onclick="applyLanguage()">Apply</button>
+      </div>
+    </section>
+
+    <!-- 테마 -->
+    <section class="card">
+      <div class="card-head">
+        <div class="card-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/>
+          </svg>
+        </div>
+        <div class="h-section" id="themeSectionTitle">Theme</div>
+      </div>
+
+      <button id="themeToggleButton" class="btn" onclick="toggleTheme()">Dark Mode</button>
+    </section>
+
+    <!-- 스크린샷 경로 -->
+    <section class="card span-all">
+      <div class="card-head">
+        <div class="card-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/>
+            <circle cx="12" cy="13" r="3.5"/>
+          </svg>
+        </div>
+        <div class="h-section" id="resetScreenshotPathText">Screenshot folder</div>
+      </div>
+
+      <div class="stack">
+        <div class="path-row">
+          <input id="screenshotPath" class="input input-path grow" readonly value="">
+          <button id="changePathButton" class="btn" onclick="changePath()">Change</button>
+          <button id="autoDetectButton" class="btn" onclick="autoDetect()">Auto Find</button>
+          <button id="openFolderButton" class="btn" onclick="openFolder()">Open Folder</button>
         </div>
       </div>
     </section>
-    <p id="footerText" class="text-center text-gray-500 text-sm mt-4">
-      This program is not related to Tarkov-market.
-    </p>
-  </footer>
-  
 
-  <script>
-    i18next
-      .use(i18nextHttpBackend)
-      .init({
-        lng: "en",
-        fallbackLng: "en",
-        debug: false,
-        backend: {
-          loadPath: "https://appassets/{{lng}}.json"
-        }
-      })
+    <!-- 로그 경로 -->
+    <section class="card span-all">
+      <div class="card-head">
+        <div class="card-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/>
+          </svg>
+        </div>
+        <div class="h-section" id="resetLogPathText">Log folder</div>
+      </div>
+
+      <div class="path-row">
+        <input id="logPath" class="input input-path grow" readonly value="">
+        <button id="changeLogPathButton" class="btn" onclick="changeLogPath()">Change</button>
+        <button id="autoDetectLogButton" class="btn" onclick="autoDetectLogPath()">Auto Find</button>
+      </div>
+    </section>
+
+    <!-- 데드존 -->
+    <section class="card">
+      <div class="card-head">
+        <div class="card-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <rect x="7" y="7" width="10" height="10" rx="1" stroke-dasharray="2 2"/>
+            <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+          </svg>
+        </div>
+        <div class="h-section" id="deadZoneLabel">Dead Zone Percentage</div>
+      </div>
+
+      <div class="field">
+        <input type="range" id="deadZoneSlider" min="50" max="99" step="1" value="93" oninput="onDeadZoneChange()">
+        <span id="deadZoneValue" class="badge">93%</span>
+      </div>
+    </section>
+
+    <!-- 자동 촬영 -->
+    <section class="card">
+      <div class="card-head">
+        <div class="card-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>
+          </svg>
+        </div>
+        <div class="h-section" id="autoCaptureSectionTitle">Auto Capture</div>
+      </div>
+
+      <div class="stack">
+        <div class="field">
+          <label class="field-label" id="autoCaptureKeyText" for="autoCaptureKeySelect">Screenshot key</label>
+          <select id="autoCaptureKeySelect" class="select grow" onchange="onAutoCaptureKeyChange()">
+            <option value="PrintScreen">Print Screen</option>
+            <option value="F9">F9</option>
+            <option value="F10">F10</option>
+            <option value="F11">F11</option>
+            <option value="F12">F12</option>
+            <option value="Insert">Insert</option>
+            <option value="Scroll">Scroll Lock</option>
+            <option value="Pause">Pause</option>
+          </select>
+        </div>
+
+        <div class="note note-warn">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>
+            <path d="M12 9v4"/><path d="M12 17h.01"/>
+          </svg>
+          <span id="autoCaptureHelpText">Presses the in-game screenshot key for you while Tarkov is focused.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 모바일 레이더 -->
+    <section class="card">
+      <div class="card-head">
+        <div class="card-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18.5h2"/>
+          </svg>
+        </div>
+        <div class="h-section" id="radarSectionTitle">Mobile Radar</div>
+      </div>
+
+      <div class="stack">
+        <div class="field">
+          <label class="field-label" id="radarPortText" for="radarPortInput">Port</label>
+          <input type="number" id="radarPortInput" class="input" min="1024" max="65535" value="8787"
+                 style="width:110px" onchange="onRadarPortChange()">
+          <button id="radarRegenerateButton" class="btn btn-sm" onclick="regenerateRadarToken()">New access code</button>
+        </div>
+
+        <div class="row">
+          <span id="radarUrlDisplay" class="badge badge-mono grow" style="justify-content:flex-start;overflow:hidden;text-overflow:ellipsis">-</span>
+        </div>
+
+        <p id="radarHelpText" class="help">View the map on your phone over the same network.</p>
+      </div>
+    </section>
+
+    <!-- 버전 -->
+    <section class="card">
+      <div class="card-head">
+        <div class="card-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/>
+          </svg>
+        </div>
+        <div class="h-section" id="appVersionText">App Version</div>
+      </div>
+
+      <div class="field">
+        <span id="versionBadge" class="badge badge-mono">…</span>
+        <button id="checkUpdateButton" class="btn btn-primary" onclick="checkUpdate()">Check for Update</button>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<footer>
+  <div class="footer-links">
+    <a id="howToUseLink" href="https://github.com/karpitony/eft-where-am-i/blob/main/README.md">How To Use</a>
+    <a id="bugLink" href="https://github.com/karpitony/eft-where-am-i/issues">Bug Report</a>
+  </div>
+  <p id="footerText">This program is not affiliated with Tarkov-market.</p>
+</footer>
+
+<script>
+  // ── i18next ────────────────────────────────────────────
+  i18next
+    .use(i18nextHttpBackend)
+    .init({
+      lng: "en",
+      fallbackLng: "en",
+      debug: false,
+      backend: { loadPath: "https://appassets/{{lng}}.json" }
+    })
+    .then(updateContent)
+    .catch(err => console.error("i18next 초기화 오류:", err));
+
+  const TRANSLATED_IDS = [
+    'settingPageTitle', 'chooseLanguageText', 'applyButton',
+    'resetScreenshotPathText', 'changePathButton', 'autoDetectButton', 'openFolderButton',
+    'resetLogPathText', 'changeLogPathButton', 'autoDetectLogButton',
+    'deadZoneLabel', 'themeSectionTitle',
+    'autoCaptureSectionTitle', 'autoCaptureKeyText', 'autoCaptureHelpText',
+    'radarSectionTitle', 'radarPortText', 'radarHelpText', 'radarRegenerateButton',
+    'appVersionText', 'checkUpdateButton',
+    'howToUseLink', 'bugLink', 'footerText'
+  ];
+
+  function updateContent() {
+    TRANSLATED_IDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const value = i18next.t(id);
+      if (value && value !== id) el.textContent = value;
+    });
+    applyThemeButtonLabel();
+  }
+
+  function post(payload) {
+    window.chrome.webview.postMessage(JSON.stringify(payload));
+  }
+
+  // ── 테마 ───────────────────────────────────────────────
+  function applyThemeButtonLabel() {
+    const btn = document.getElementById('themeToggleButton');
+    if (!btn) return;
+
+    const isDark = !document.body.classList.contains('theme-light');
+    const key = isDark ? 'themeToggleButtonLight' : 'themeToggleButton';
+    const value = i18next.t(key);
+    btn.textContent = (value && value !== key) ? value : (isDark ? 'Light Mode' : 'Dark Mode');
+  }
+
+  function setTheme(theme) {
+    try {
+      // 기본이 다크라, 라이트일 때만 클래스를 붙입니다.
+      document.body.classList.toggle('theme-light', theme === 'light');
+      applyThemeButtonLabel();
+    } catch (error) {
+      console.error("setTheme 오류:", error);
+    }
+  }
+
+  function toggleTheme() {
+    const nextTheme = document.body.classList.contains('theme-light') ? 'dark' : 'light';
+    setTheme(nextTheme);
+    post({ action: 'theme-updated', theme: nextTheme });
+  }
+
+  // ── 언어 ───────────────────────────────────────────────
+  function applyLanguage() {
+    const language = document.getElementById('languageSelect').value;
+    i18next.changeLanguage(language)
       .then(() => {
         updateContent();
+        post({ action: 'language-updated', language: language });
       })
-      .catch(err => console.error("i18next 초기화 오류:", err));
+      .catch(error => console.error("changeLanguage 오류:", error));
+  }
 
-    // DOM에 번역 적용 함수
-    function updateContent() {
-      document.getElementById('settingPageTitle').textContent = i18next.t('settingPageTitle');
-      document.getElementById('chooseLanguageText').textContent = i18next.t('chooseLanguageText');
-      document.getElementById('applyButton').textContent = i18next.t('applyButton');
-      document.getElementById('resetScreenshotPathText').textContent = i18next.t('resetScreenshotPathText');
-      document.getElementById('changePathButton').textContent = i18next.t('changePathButton');
-      document.getElementById('autoDetectButton').textContent = i18next.t('autoDetectButton');
-      document.getElementById('openFolderButton').textContent = i18next.t('openFolderButton');
-      document.getElementById('howToUseLink').textContent = i18next.t('howToUseLink');
-      document.getElementById('bugLink').textContent = i18next.t('bugLink');
-      document.getElementById('footerText').textContent = i18next.t('footerText');
-      document.getElementById('resetLogPathText').textContent = i18next.t('resetLogPathText');
-      document.getElementById('changeLogPathButton').textContent = i18next.t('changeLogPathButton');
-      document.getElementById('autoDetectLogButton').textContent = i18next.t('autoDetectLogButton');
-      document.getElementById('deadZoneLabel').textContent = i18next.t('deadZoneLabel');
-      document.getElementById('themeSectionTitle').textContent = i18next.t('themeSectionTitle');
-      document.getElementById('themeToggleButton').textContent = i18next.t('themeToggleButton');
-      document.getElementById('appVersionText').textContent = i18next.t('appVersionText');
-      document.getElementById('checkUpdateButton').textContent = i18next.t('checkUpdateButton');
-    }
+  function setLanguage(language) {
+    try {
+      const select = document.getElementById('languageSelect');
+      if (select) select.value = language;
 
-    function setTheme(theme) {
-      try {
-        document.body.classList.toggle('theme-dark', theme === 'dark');
-        const button = document.getElementById('themeToggleButton');
-        if (button) {
-          const label = theme === 'dark' ? i18next.t('themeToggleButtonLight') : i18next.t('themeToggleButton');
-          button.textContent = label;
-        }
-      } catch (error) {
-        console.error("setTheme 오류 발생: ", error);
-      }
-    }
-
-    function toggleTheme() {
-      const nextTheme = document.body.classList.contains('theme-dark') ? 'light' : 'dark';
-      setTheme(nextTheme);
-      window.chrome.webview.postMessage(JSON.stringify({ action: 'theme-updated', theme: nextTheme }));
-    }
-
-    // 언어 선택 시 호출되는 함수
-    function applyLanguage() {
-      const language = document.getElementById('languageSelect').value;
-      console.log("Selected Language:", language);
-
-      // i18next를 통해 언어 변경 및 화면 갱신
       i18next.changeLanguage(language)
-        .then(() => {
-          updateContent();
-        })
-        .then(() => {
-          window.chrome.webview.postMessage(JSON.stringify({
-            action: 'language-updated',
-            language: language
-          }));
-        })
-        .catch(err => console.error("언어 변경 오류:", err));
+        .then(updateContent)
+        .catch(error => console.error("changeLanguage 오류:", error));
+    } catch (error) {
+      console.error("setLanguage 오류:", error);
     }
+  }
 
-    function setLanguage(language) {
-      try {
-        // 언어 선택 <select> 요소의 값을 변경
-        const select = document.getElementById('languageSelect');
-        if(select) {
-          select.value = language;
-        }
-        // i18next를 통해 언어 변경 (비동기 처리는 필요시 then()으로 체이닝 가능)
-        i18next.changeLanguage(language)
-          .then(() => {
-            updateContent(); // DOM 텍스트 업데이트
-          })
-          .catch(error => {
-            console.error("i18next changeLanguage 오류 발생:", error);
-          });
-          
-        console.log("Language set to:", language); // 디버그용 출력
-      } catch (error) {
-        console.error("setLanguage 오류 발생: ", error);
+  // ── 경로 ───────────────────────────────────────────────
+  function setScreenshotPath(path) {
+    const el = document.getElementById('screenshotPath');
+    if (el) { el.value = path || ''; el.title = path || ''; }
+  }
+
+  function setLogPath(path) {
+    const el = document.getElementById('logPath');
+    if (el) { el.value = path || ''; el.title = path || ''; }
+  }
+
+  function changePath() { post({ action: 'change-path' }); }
+  function autoDetect() { post({ action: 'auto-detect-path' }); }
+  function openFolder() { post({ action: 'open-folder' }); }
+  function changeLogPath() { post({ action: 'change-log-path' }); }
+  function autoDetectLogPath() { post({ action: 'auto-detect-log-path' }); }
+
+  // ── 데드존 ─────────────────────────────────────────────
+  function setDeadZonePercent(value) {
+    const slider = document.getElementById('deadZoneSlider');
+    const display = document.getElementById('deadZoneValue');
+    if (slider) slider.value = value;
+    if (display) display.textContent = value + '%';
+  }
+
+  function onDeadZoneChange() {
+    const value = document.getElementById('deadZoneSlider').value;
+    document.getElementById('deadZoneValue').textContent = value + '%';
+    post({ action: 'dead-zone-changed', value: parseInt(value, 10) });
+  }
+
+  // ── 자동 촬영 ──────────────────────────────────────────
+  function setAutoCaptureKey(keyName) {
+    try {
+      const select = document.getElementById('autoCaptureKeySelect');
+      if (!select) return;
+
+      // 목록에 없는 키면 항목을 만들어 줍니다 (설정 파일을 직접 고친 경우)
+      if (![...select.options].some(o => o.value === keyName)) {
+        const opt = document.createElement('option');
+        opt.value = keyName;
+        opt.textContent = keyName;
+        select.appendChild(opt);
       }
+      select.value = keyName;
+    } catch (error) {
+      console.error('setAutoCaptureKey 오류:', error);
     }
+  }
 
-    // C#에서 호출하는 함수: 스크린샷 경로 설정
-    function setScreenshotPath(path) {
-      try {
-        const input = document.getElementById('screenshotPath');
-        input.value = path;
-        console.log("Screenshot path set to:", path);
-      } catch (error) {
-        console.error("setScreenshotPath 오류 발생: ", error);
+  function onAutoCaptureKeyChange() {
+    post({ action: 'auto-screenshot-key', value: document.getElementById('autoCaptureKeySelect').value });
+  }
+
+  // ── 모바일 레이더 ──────────────────────────────────────
+  function setRadarInfo(port, url) {
+    try {
+      const portInput = document.getElementById('radarPortInput');
+      if (portInput && port) portInput.value = port;
+
+      const display = document.getElementById('radarUrlDisplay');
+      if (!display) return;
+
+      if (url && url.length) {
+        display.textContent = url;
+        display.title = url;
+        display.classList.remove('badge-muted');
+      } else {
+        display.textContent = '-';
+        display.title = '';
+        display.classList.add('badge-muted');
       }
+    } catch (error) {
+      console.error('setRadarInfo 오류:', error);
     }
+  }
 
-    // C#에서 호출하는 함수: 로그 경로 설정
-    function setLogPath(path) {
-      try {
-        const input = document.getElementById('logPath');
-        input.value = path;
-        console.log("Log path set to:", path);
-      } catch (error) {
-        console.error("setLogPath 오류 발생: ", error);
-      }
-    }
+  function onRadarPortChange() {
+    post({ action: 'radar-port', value: parseInt(document.getElementById('radarPortInput').value, 10) });
+  }
 
-    // C#에서 호출하는 함수: 데드존 비율 설정
-    function setDeadZonePercent(value) {
-      try {
-        const slider = document.getElementById('deadZoneSlider');
-        const display = document.getElementById('deadZoneValue');
-        slider.value = value;
-        display.textContent = value + '%';
-        console.log("Dead zone percent set to:", value);
-      } catch (error) {
-        console.error("setDeadZonePercent 오류 발생: ", error);
-      }
-    }
+  function regenerateRadarToken() { post({ action: 'radar-regenerate-token' }); }
 
-    // 데드존 슬라이더 변경 시 호출
-    function onDeadZoneChange() {
-      const value = document.getElementById('deadZoneSlider').value;
-      document.getElementById('deadZoneValue').textContent = value + '%';
-      window.chrome.webview.postMessage(JSON.stringify({
-        action: 'dead-zone-changed',
-        value: parseInt(value)
-      }));
-    }
+  // ── 버전 ───────────────────────────────────────────────
+  function setCurrentVersion(version) {
+    const badge = document.getElementById('versionBadge');
+    const eyebrow = document.getElementById('currentVersionLabel');
+    if (badge) badge.textContent = 'v' + version;
+    if (eyebrow) eyebrow.textContent = 'v' + version;
+  }
 
-    // 경로 변경 시 C#으로 전달
-    function changePath() {
-      const path = document.getElementById('screenshotPath').value;
-      console.log("Change Path requested:", path);
-      
-      window.chrome.webview.postMessage(JSON.stringify({
-        action: 'change-path',
-        path: path
-      }));
-    }
+  function checkUpdate() { post({ action: 'check-update' }); }
 
-    // 자동 탐색 버튼 클릭 시 C#으로 요청
-    function autoDetect() {
-      console.log("Auto-detect requested");
-
-      window.chrome.webview.postMessage(JSON.stringify({
-        action: 'auto-detect-path'
-      }));
-    }
-
-    // 로그 경로 변경 시 C#으로 전달
-    function changeLogPath() {
-      console.log("Change Log Path requested");
-
-      window.chrome.webview.postMessage(JSON.stringify({
-        action: 'change-log-path'
-      }));
-    }
-
-    // 로그 경로 자동 탐색 버튼 클릭 시 C#으로 요청
-    function autoDetectLogPath() {
-      console.log("Auto-detect log path requested");
-
-      window.chrome.webview.postMessage(JSON.stringify({
-        action: 'auto-detect-log-path'
-      }));
-    }
-
-    // C#에서 호출하는 함수: 앱 버전 텍스트 세팅
-    function setCurrentVersion(version) {
-      try {
-        const span = document.getElementById('currentVersionLabel');
-        span.textContent = 'v' + version;
-        console.log("Current version set to:", version);
-      } catch (error) {
-        console.error("setCurrentVersion 오류 발생: ", error);
-      }
-    }
-
-    // 업데이트 확인 버튼 클릭 시 C#으로 전달
-    function checkUpdate() {
-      console.log("Check update requested");
-      window.chrome.webview.postMessage(JSON.stringify({
-        action: 'check-update'
-      }));
-    }
-
-    // 폴더 열기 버튼 클릭 시 C#으로 요청
-    function openFolder() {
-      console.log("Open folder requested");
-
-      window.chrome.webview.postMessage(JSON.stringify({
-        action: 'open-folder'
-      }));
-    }
-
-    // How To Use 링크 클릭 시 C#에 전달
-    document.querySelector('#howToUseLink').addEventListener('click', function(e) {
+  // ── 외부 링크는 기본 브라우저로 ────────────────────────
+  document.querySelectorAll('#howToUseLink, #bugLink').forEach(link => {
+    link.addEventListener('click', function (e) {
       e.preventDefault();
-      console.log("How To Use link clicked:", this.href);
-      
-      window.chrome.webview.postMessage(JSON.stringify({
-        action: 'link-clicked',
-        url: this.href
-      }));
+      post({ action: 'link-clicked', url: this.href });
     });
-
-    // Bug Report 링크 클릭 시 C#에 전달
-    document.querySelector('#bugLink').addEventListener('click', function(e) {
-      e.preventDefault();
-      console.log("Bug Report link clicked:", this.href);
-      
-      window.chrome.webview.postMessage(JSON.stringify({
-        action: 'link-clicked',
-        url: this.href
-      }));
-    });
-  </script>
+  });
+</script>
 </body>
 </html>

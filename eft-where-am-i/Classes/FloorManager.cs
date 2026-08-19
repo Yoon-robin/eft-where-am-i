@@ -1,6 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Newtonsoft.Json;
 
 namespace eft_where_am_i.Classes
@@ -41,8 +42,14 @@ namespace eft_where_am_i.Classes
         private Dictionary<string, MapFloorConfig> _floorDb;
 
         public FloorManager()
+            : this(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "floor_db.json"))
         {
-            _filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "floor_db.json");
+        }
+
+        /// <summary>DB 파일 경로를 직접 지정합니다. (테스트용)</summary>
+        public FloorManager(string filePath)
+        {
+            _filePath = filePath;
             Load();
         }
 
@@ -64,7 +71,7 @@ namespace eft_where_am_i.Classes
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[FloorManager] Error loading floor DB: {ex.Message}");
+                AppLogger.Error("FloorManager", $"floor DB 로드 실패: {ex.Message}");
                 _floorDb = new Dictionary<string, MapFloorConfig>();
             }
         }
@@ -137,101 +144,46 @@ namespace eft_where_am_i.Classes
         }
 
         /// <summary>
-        /// Ray Casting 알고리즘으로 점이 폴리곤 내부에 있는지 판별합니다.
+        /// 해당 맵에 폴리곤 zone 이 정의되어 있는지 여부.
+        /// zone 이 있으면 폴리곤 판정을 브라우저(<c>__detectFloor</c>)에 위임해야 합니다.
         /// </summary>
-        public static bool IsPointInPolygon(double px, double py, List<PolygonPoint> polygon)
+        public bool HasZones(string mapName)
         {
-            if (polygon == null || polygon.Count < 3)
-                return false;
-
-            bool inside = false;
-            int n = polygon.Count;
-            for (int i = 0, j = n - 1; i < n; j = i++)
-            {
-                double xi = polygon[i].x, yi = polygon[i].y;
-                double xj = polygon[j].x, yj = polygon[j].y;
-
-                if (((yi > py) != (yj > py)) &&
-                    (px < (xj - xi) * (py - yi) / (yj - yi) + xi))
-                {
-                    inside = !inside;
-                }
-            }
-
-            return inside;
+            return !string.IsNullOrEmpty(mapName)
+                   && _floorDb.TryGetValue(mapName, out var config)
+                   && config.zones != null
+                   && config.zones.Count > 0;
         }
 
         /// <summary>
-        /// 폴리곤 기반 + Z좌표로 층을 판별합니다. (새 시그니처)
-        /// zones가 있으면 폴리곤 기반, 없으면 기존 z-range 폴백.
+        /// 해당 맵의 기본 층 이름. 맵이 등록되어 있지 않으면 null.
         /// </summary>
-        public string GetFloorName(string mapName, double x, double y, double z)
+        public string GetDefaultFloor(string mapName)
         {
-            if (!_floorDb.TryGetValue(mapName, out var config))
+            if (string.IsNullOrEmpty(mapName) || !_floorDb.TryGetValue(mapName, out var config))
                 return null;
 
-            string defaultFloor = config.default_floor ?? "Ground";
-
-            // zones가 있으면 폴리곤 기반 판별
-            if (config.zones != null && config.zones.Count > 0)
-            {
-                foreach (var zone in config.zones)
-                {
-                    // 1. 외곽 폴리곤 안에 있는가?
-                    if (!IsPointInPolygon(x, y, zone.polygon))
-                        continue;
-
-                    // 2. hole 안에 있는가?
-                    bool inHole = false;
-                    if (zone.holes != null)
-                    {
-                        foreach (var hole in zone.holes)
-                        {
-                            if (IsPointInPolygon(x, y, hole))
-                            {
-                                inHole = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (inHole)
-                        continue;
-
-                    // 3. Z좌표 범위 체크
-                    if (z < zone.z_min || z >= zone.z_max)
-                        return defaultFloor;
-
-                    // 4. 모두 통과 → 해당 zone의 층
-                    return zone.floor_label;
-                }
-
-                // 어떤 zone에도 해당하지 않으면 default_floor
-                return defaultFloor;
-            }
-
-            // zones가 없으면 기존 z-range 폴백
-            return GetFloorNameByZ(config, z);
+            return config.default_floor ?? "Ground";
         }
 
         /// <summary>
-        /// Z좌표로부터 해당 맵의 층 이름을 판별합니다 (기존 호환).
+        /// <b>높이</b>로 해당 맵의 층 이름을 판별합니다.
+        ///
+        /// 타르코프는 Unity 기반이라 게임 좌표의 <b>y 가 높이</b>입니다.
+        /// 스크린샷 파일명의 좌표는 (x, y, z) 순서이므로 두 번째 값을 넘겨야 합니다.
+        /// (필드 이름이 z_min/z_max 인 것은 floor_db.json 하위 호환 때문입니다.)
         /// </summary>
-        public string GetFloorName(string mapName, double zCoord)
+        public string GetFloorNameByHeight(string mapName, double height)
         {
-            if (!_floorDb.TryGetValue(mapName, out var config))
+            if (string.IsNullOrEmpty(mapName) || !_floorDb.TryGetValue(mapName, out var config))
                 return null;
 
-            return GetFloorNameByZ(config, zCoord);
-        }
-
-        private string GetFloorNameByZ(MapFloorConfig config, double zCoord)
-        {
             if (config.floors == null || config.floors.Count == 0)
                 return null;
 
             foreach (var floor in config.floors)
             {
-                if (zCoord >= floor.z_min && zCoord < floor.z_max)
+                if (height >= floor.z_min && height < floor.z_max)
                 {
                     return floor.name;
                 }
@@ -239,6 +191,47 @@ namespace eft_where_am_i.Classes
 
             return null;
         }
+
+        /// <summary>
+        /// floor_db 의 층 이름을 tarkov-market 의 실제 레이어 라벨 후보로 확장합니다.
+        ///
+        /// floor_db 는 "Ground"/"Underground" 같은 논리적 이름을 쓰는데
+        /// tarkov-market 라벨은 맵마다 "Main", "Basement", "Level 2" 등으로 제각각입니다.
+        /// 설정된 이름을 먼저 시도하고, 안 되면 통용되는 별칭을 순서대로 시도합니다.
+        /// </summary>
+        public static string[] GetLabelCandidates(string floorName)
+        {
+            if (string.IsNullOrWhiteSpace(floorName))
+                return Array.Empty<string>();
+
+            string trimmed = floorName.Trim();
+
+            if (FloorLabelAliases.TryGetValue(trimmed, out var aliases))
+            {
+                // 설정값을 최우선으로 두고 중복 없이 별칭을 이어붙입니다.
+                var candidates = new List<string> { trimmed };
+                foreach (var alias in aliases)
+                {
+                    if (!candidates.Contains(alias, StringComparer.OrdinalIgnoreCase))
+                        candidates.Add(alias);
+                }
+                return candidates.ToArray();
+            }
+
+            return new[] { trimmed };
+        }
+
+        private static readonly Dictionary<string, string[]> FloorLabelAliases =
+            new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "Ground",      new[] { "Main", "Ground floor", "Level 1", "1st floor" } },
+                { "Main",        new[] { "Ground", "Level 1" } },
+                { "Underground", new[] { "Basement", "Bunker", "Tunnels", "Underground level", "-1" } },
+                { "Basement",    new[] { "Underground", "Bunker", "Tunnels" } },
+                { "Bunker",      new[] { "Basement", "Underground", "Tunnels" } },
+                { "Second",      new[] { "Level 2", "2nd floor" } },
+                { "Third",       new[] { "Level 3", "3rd floor" } },
+            };
 
         /// <summary>
         /// 특정 맵의 zones 데이터를 JSON으로 반환 (에디터용)
@@ -314,7 +307,7 @@ namespace eft_where_am_i.Classes
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[FloorManager] Error updating from JSON: {ex.Message}");
+                AppLogger.Error("FloorManager", $"JSON 으로부터 DB 갱신 실패: {ex.Message}");
             }
         }
     }

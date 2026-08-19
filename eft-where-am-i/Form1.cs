@@ -1,9 +1,11 @@
-using System;
+﻿using System;
 using System.Drawing;
+using System.IO;
 using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using eft_where_am_i;
+using eft_where_am_i.Classes;
 using Velopack;
 using Velopack.Sources;
 namespace eft_where_am_i_chasrp
@@ -28,6 +30,29 @@ namespace eft_where_am_i_chasrp
                           ControlStyles.OptimizedDoubleBuffer, true);
 
             InitializeScreens();
+            ApplyTheme();
+
+            // 설정에서 테마를 바꾸면 창 전체도 같이 따라갑니다.
+            SettingsHandler.Instance.SettingsChanged += _ => ApplyTheme();
+        }
+
+        /// <summary>사이드 메뉴와 창 배경에 현재 테마를 입힙니다.</summary>
+        private void ApplyTheme()
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(ApplyTheme));
+                return;
+            }
+
+            BackColor = AppTheme.Background;
+            panel1.BackColor = AppTheme.Background;
+            panelSideMenu.BackColor = AppTheme.Surface;
+
+            AppTheme.StyleNavButton(btnWhereAmI, currentScreen == "WhereAmI");
+            AppTheme.StyleNavButton(btnSetting, currentScreen == "SettingPage");
+            AppTheme.StyleNavButton(btnServerLocation, currentScreen == "ServerLocation");
+            AppTheme.StyleCheckBox(checkBoxHide);
         }
 
         private void InitializeScreens()
@@ -52,6 +77,38 @@ namespace eft_where_am_i_chasrp
             serverLocationControl.Visible = false;
         }
 
+        // 아이콘을 토글할 때마다 Image.FromFile 을 호출하면
+        // 이전 Image 가 해제되지 않아 GDI 핸들과 파일 핸들이 계속 쌓입니다.
+        private Image iconSetting;
+        private Image iconServerLocation;
+        private Image iconWhereAmI;
+
+        private void LoadSideMenuIcons()
+        {
+            iconSetting ??= LoadIcon("settings_icon2_resize.png");
+            iconServerLocation ??= LoadIcon("server.png");
+            iconWhereAmI ??= LoadIcon("eft-where-am-i_icon_resize.png");
+        }
+
+        private static Image LoadIcon(string fileName)
+        {
+            try
+            {
+                string path = Path.Combine(
+                    AppDomain.CurrentDomain.BaseDirectory, "assets", "images", fileName);
+                if (!File.Exists(path)) return null;
+
+                // FromFile 은 파일을 잠그므로 스트림에서 복사본을 만듭니다.
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read);
+                return Image.FromStream(stream);
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Warn("Form1", $"아이콘 로드 실패 ({fileName}): {ex.Message}");
+                return null;
+            }
+        }
+
         const int MAX_SLIDING_WIDTH = 200;
         const int MIN_SLIDING_WIDTH = 75;
         const int STEP_SLIDING = 10;
@@ -71,12 +128,14 @@ namespace eft_where_am_i_chasrp
             }
             else
             {
+                LoadSideMenuIcons();
+
                 btnSetting.Text = "";
-                btnSetting.Image = Image.FromFile(@"assets\images\settings_icon2_resize.png");
+                btnSetting.Image = iconSetting;
                 btnServerLocation.Text = "";
-                btnServerLocation.Image = Image.FromFile(@"assets\images\server.png");
+                btnServerLocation.Image = iconServerLocation;
                 btnWhereAmI.Text = "";
-                btnWhereAmI.Image = Image.FromFile(@"assets\images\eft-where-am-i_icon_resize.png");
+                btnWhereAmI.Image = iconWhereAmI;
                 checkBoxHide.Text = ">";
             }
 
@@ -146,8 +205,8 @@ namespace eft_where_am_i_chasrp
             }
             catch (Exception ex)
             {
-                // 업데이트 오류 시 앱 실행을 방해하지 않도록 무시 또는 로깅
-                Console.WriteLine($"업데이트 확인 중 오류: {ex.Message}");
+                // 업데이트 오류 시 앱 실행을 방해하지 않도록 로깅만 합니다.
+                AppLogger.Warn("Update", $"업데이트 확인 실패: {ex.Message}");
             }
         }
 
@@ -157,6 +216,7 @@ namespace eft_where_am_i_chasrp
             {
                 SwitchUserControl(settingPageControl);
                 currentScreen = "SettingPage";
+                RefreshNavSelection();
             }
         }
 
@@ -166,6 +226,7 @@ namespace eft_where_am_i_chasrp
             {
                 SwitchUserControl(whereAmIControl);
                 currentScreen = "WhereAmI";
+                RefreshNavSelection();
             }
         }
 
@@ -175,6 +236,7 @@ namespace eft_where_am_i_chasrp
             {
                 SwitchUserControl(serverLocationControl);
                 currentScreen = "ServerLocation";
+                RefreshNavSelection();
             }
         }
 
@@ -187,6 +249,14 @@ namespace eft_where_am_i_chasrp
 
             // 새 화면만 보이기
             control.Visible = true;
+        }
+
+        /// <summary>현재 화면에 맞춰 사이드 메뉴의 선택 표시를 갱신합니다.</summary>
+        private void RefreshNavSelection()
+        {
+            AppTheme.StyleNavButton(btnWhereAmI, currentScreen == "WhereAmI");
+            AppTheme.StyleNavButton(btnSetting, currentScreen == "SettingPage");
+            AppTheme.StyleNavButton(btnServerLocation, currentScreen == "ServerLocation");
         }
     }
 

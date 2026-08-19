@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="eft-where-am-i.csproj" />
+  <Project Path="../tests/eft-where-am-i.Tests/eft-where-am-i.Tests.csproj" />
 </Solution>

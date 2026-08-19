@@ -39,7 +39,11 @@ jobs:
         npm install
         npm run build:css
 
-    # 3. 앱 빌드 및 Publish (런타임 미포함 - 기존)
+    # 3. 단위 테스트 (좌표 파싱 / 층 판정 / 맵 매핑)
+    - name: Run unit tests
+      run: dotnet test tests/eft-where-am-i.Tests/eft-where-am-i.Tests.csproj -c Release
+
+    # 4. 앱 빌드 및 Publish (런타임 미포함 - 기존)
     - name: Publish App (Framework Dependent)
       run: |
         dotnet publish eft-where-am-i/eft-where-am-i.csproj `
@@ -50,7 +54,7 @@ jobs:
           -p:IncludeNativeLibrariesForSelfExtract=false `
           -o ./publish_output_fd
 
-    # 4. 앱 빌드 및 Publish (런타임 포함 - 독립 실행형)
+    # 5. 앱 빌드 및 Publish (런타임 포함 - 독립 실행형)
     - name: Publish App (Self-Contained)
       run: |
         dotnet publish eft-where-am-i/eft-where-am-i.csproj `
@@ -61,7 +65,7 @@ jobs:
           -p:IncludeNativeLibrariesForSelfExtract=false `
           -o ./publish_output_sc
 
-    # 5. Velopack 패키징 (런타임 미포함)
+    # 6. Velopack 패키징 (런타임 미포함)
     - name: Pack App with Velopack (Framework Dependent)
       shell: bash
       run: |
@@ -74,7 +78,7 @@ jobs:
           -e "EFT-Where-Am-I.exe" \
           -o ./ReleaseBuild_FD
 
-    # 6. Velopack 패키징 (런타임 포함)
+    # 7. Velopack 패키징 (런타임 포함)
     # '-c win-sc' 채널을 지정하여 기존(런타임 미포함) 업데이트 파이프라인과 분리합니다.
     - name: Pack App with Velopack (Self-Contained)
       shell: bash
@@ -89,7 +93,7 @@ jobs:
           -e "EFT-Where-Am-I.exe" \
           -o ./ReleaseBuild_SC
 
-    # 7. GitHub Release 생성 및 파일 업로드 (Velopack Setup)
+    # 8. GitHub Release 생성 및 파일 업로드 (Velopack Setup)
     - name: Upload Velopack Releases to GitHub
       shell: bash
       run: |
@@ -108,7 +112,7 @@ jobs:
           --tag "${{ github.ref_name }}" \
           --merge
 
-    # 8. 릴리즈 노트에 설치 가이드 README 링크 추가
+    # 9. 릴리즈 노트에 설치 가이드 README 링크 추가
     - name: Append install guide to Release notes
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

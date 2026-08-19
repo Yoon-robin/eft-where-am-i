@@ -9,357 +9,415 @@
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="../assets/css/tailwind.css">
   <style>
+    /* 컴포넌트(.btn / .chip / .select / .badge)는 styles.css 의 디자인 시스템을 씁니다.
+       여기에는 이 패널 전용 레이아웃만 둡니다. */
+
     html, body {
-      margin: 0;
-      padding: 0;
       height: 100vh;
       width: 100vw;
-      overflow: hidden; /* 스크롤바 방지 */
+      overflow: hidden;
     }
+
+    body {
+      font-size: 13px;
+      background:
+        linear-gradient(180deg, rgba(139, 109, 255, 0.07), transparent 70%),
+        var(--app-bg-2);
+      border-top: 1px solid var(--border-strong);
+    }
+
+    #toolbar {
+      display: flex;
+      align-items: stretch;
+      height: 100%;
+      padding: 8px 4px;
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
+
+    .group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 2px 14px;
+      justify-content: center;
+      /* 줄어들면 옆 그룹과 내용이 겹칩니다. 대신 툴바를 가로 스크롤합니다. */
+      flex: none;
+    }
+
+    .group + .group { border-left: 1px solid var(--border); }
+
+    .group-title {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--faint);
+      white-space: nowrap;
+      line-height: 1;
+    }
+
+    .row { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
+
+    #mapSelect {
+      min-width: 158px;
+      font-weight: 650;
+      font-size: 13px;
+      padding: 7px 10px;
+    }
+
+    /* 패널은 세로 공간이 좁아 컨트롤을 조금 더 조밀하게 */
+    #toolbar .btn { padding: 6px 11px; font-size: 12px; }
+    #toolbar .chip { padding: 5px 10px 5px 8px; font-size: 12px; }
+    #toolbar .select { padding: 6px 8px; font-size: 12px; }
+
+    #radarBox { display: flex; align-items: center; gap: 6px; }
+
+    #radarUrl {
+      font-family: ui-monospace, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      padding: 5px 9px;
+      border-radius: var(--r-sm);
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      color: var(--app-text);
+      max-width: 250px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      user-select: all;
+    }
+
+    #radarUrl.off {
+      color: var(--faint);
+      font-style: italic;
+      font-family: inherit;
+      user-select: none;
+    }
+
+    .links { display: flex; flex-direction: column; gap: 4px; }
+    .links a {
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      color: var(--accent-bright);
+    }
+
+    /* 주소 복사 같은 짧은 피드백 */
+    #toast {
+      position: fixed;
+      right: 14px;
+      bottom: 10px;
+      padding: 6px 13px;
+      border-radius: var(--r-md);
+      background: var(--accent);
+      color: var(--accent-contrast);
+      font-size: 12px;
+      font-weight: 650;
+      box-shadow: var(--shadow-md);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(6px);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    #toast.show { opacity: 1; transform: translateY(0); }
   </style>
 </head>
-<body class="flex items-center justify-center bg-gray-200 w-full h-full">
-  <div class="grid grid-cols-4 grid-rows-3 gap-x-6 gap-y-0 w-full h-full">
+<body>
 
-    <!-- Cell 1: Map Selection -->
-    <section class="flex justify-center items-center w-full" style="grid-column: 1; grid-row: 1;">
-      <label
-        id="mapSelectionLabel"
-        class="text-sm lg:text-base xl:text-lg font-semibold"
-      >
-        Select The Map
-      </label>
-    </section>
-    <section class="flex justify-center items-center w-full" style="grid-column: 1; grid-row: 2;">
-      <select
-        id="mapSelect"
-        onchange="mapSelected()"
-        class="border rounded mx-4 px-2 py-0.5 text-xs lg:text-sm xl:text-base font-medium bg-white w-full"
-      >
-        <!-- C#에서 맵 목록 추가 -->
-      </select>
-    </section>
+<div id="toolbar">
 
-    <!-- Cell 2: Hide/Show and Full Screen -->
-    <section class="flex justify-center items-center w-full" style="grid-column: 2; grid-row: 1;">
-      <button
-        id="hideShowPanelsButton"
-        onclick="hideShowPanel()"
-        class="bg-white border rounded py-1 px-2 text-xs lg:text-sm xl:text-base font-medium hover:bg-gray-100 w-full"
-      >
-        Hide/Show Panels
-      </button>
-    </section>
-    <section class="flex justify-center items-center w-full" style="grid-column: 2; grid-row: 2;">
-      <button
-        id="fullScreenButton"
-        onclick="fullScreen()"
-        class="bg-white border rounded py-1 px-2 text-xs lg:text-sm xl:text-base font-medium hover:bg-gray-100 w-full"
-      >
-        Full Screen
-      </button>
-    </section>
-
-    <!-- Cell 3: Screenshot Detection -->
-    <section class="flex justify-center items-center w-full" style="grid-column: 3; grid-row: 1;">
-      <div class="flex items-center">
-        <input type="checkbox" id="autoDetect" class="w-3 h-3 lg:w-4 lg:h-4 xl:w-5 xl:h-5 mr-1" onchange="checkboxChanged()">
-        <label
-          id="autoScreenshotDetectionLabel"
-          for="autoDetect"
-          class="text-xs lg:text-sm xl:text-base font-medium"
-        >
-          Auto Screenshot Detection
-        </label>
-      </div>
-    </section>
-    <section class="flex justify-center items-center w-full" style="grid-column: 3; grid-row: 2;">
-      <button
-        id="forceRunButton"
-        onclick="forceRun()"
-        class="bg-white border rounded py-1 px-2 text-xs lg:text-sm xl:text-base font-medium hover:bg-gray-100 w-full"
-      >
-        Force Run
-      </button>
-    </section>
-
-    <!-- Cell 4: Auto Map Detection and Links -->
-    <section class="flex justify-center items-center w-full" style="grid-column: 4; grid-row: 1;">
-      <div class="flex items-center">
-        <input type="checkbox" id="autoMapDetect" class="w-3 h-3 lg:w-4 lg:h-4 xl:w-5 xl:h-5 mr-1" onchange="autoMapToggle()">
-        <label
-          id="autoMapDetectionLabel"
-          for="autoMapDetect"
-          class="text-xs lg:text-sm xl:text-base font-medium"
-        >
-          Auto Map Detection
-        </label>
-      </div>
-    </section>
-    <section class="flex justify-center items-center w-full gap-3" style="grid-column: 4; grid-row: 2;">
-      <a
-        id="howToUseLink"
-        href="https://github.com/karpitony/eft-where-am-i/blob/main/README.md"
-        class="text-blue-600 hover:underline text-xs lg:text-sm xl:text-base font-semibold"
-      >
-        How To Use
-      </a>
-      <a
-        id="bugLink"
-        href="https://github.com/karpitony/eft-where-am-i/issues"
-        class="text-blue-600 hover:underline text-xs lg:text-sm xl:text-base font-semibold"
-      >
-        Bug Report
-      </a>
-    </section>
-
-    <!-- Row 3: Auto Panning and Floor DB Editor (Debug mode only) -->
-    <section class="flex justify-center items-center w-full" style="grid-column: 1; grid-row: 3;">
-      <div class="flex items-center">
-        <input type="checkbox" id="autoPanning" class="w-3 h-3 lg:w-4 lg:h-4 xl:w-5 xl:h-5 mr-1" onchange="autoPanningToggle()">
-        <label
-          id="autoPanningLabel"
-          for="autoPanning"
-          class="text-xs lg:text-sm xl:text-base font-medium"
-        >
-          Auto Panning
-        </label>
-      </div>
-    </section>
-    <section class="flex justify-center items-center w-full" style="grid-column: 2; grid-row: 3;">
-      <button
-        id="floorDbEditorButton"
-        onclick="toggleFloorEditMode()"
-        style="display: none;"
-        class="bg-white border rounded py-1 px-2 text-xs lg:text-sm xl:text-base font-medium hover:bg-gray-100 w-full"
-      >
-        Floor DB Editor
-      </button>
-    </section>
-    <section class="flex justify-center items-center w-full" style="grid-column: 3; grid-row: 3;">
-      <div class="flex items-center">
-        <input type="checkbox" id="autoScreenshotCleanup" class="w-3 h-3 lg:w-4 lg:h-4 xl:w-5 xl:h-5 mr-1" onchange="autoScreenshotCleanupToggle()">
-        <label id="autoScreenshotCleanupLabel" for="autoScreenshotCleanup"
-          class="text-xs lg:text-sm xl:text-base font-medium">
-          Auto Screenshot Cleanup
-        </label>
-      </div>
-    </section>
+  <!-- 맵 -->
+  <div class="group">
+    <div class="group-title" data-i18n="panelGroupMap">Map</div>
+    <div class="row">
+      <select id="mapSelect" class="select" onchange="mapSelected()"></select>
+    </div>
+    <div class="row">
+      <button class="btn" id="forceRunButton" data-i18n="forceRunButton" onclick="forceRun()">Force Run</button>
+      <button class="btn" id="floorDbEditorButton" data-i18n="floorDbEditorButton"
+              onclick="toggleFloorEditMode()" style="display:none">Floor DB Editor</button>
+    </div>
   </div>
 
-  <script>
-    i18next
-      .use(i18nextHttpBackend)
-      .init({
-        lng: "en",
-        fallbackLng: "en",
-        debug: false,
-        backend: {
-          loadPath: "https://appassets/{{lng}}.json"
-        }
-      })
-      .then(() => {
-        updateContent();
-      })
-      .catch(err => console.error("i18next 초기화 오류:", err));
+  <!-- 화면 -->
+  <div class="group">
+    <div class="group-title" data-i18n="panelGroupView">View</div>
+    <div class="row">
+      <button class="btn" id="hideShowPanelsButton" data-i18n="hideShowPanelsButton"
+              onclick="hideShowPanel()">Hide/Show Panels</button>
+    </div>
+    <div class="row">
+      <button class="btn" id="fullScreenButton" data-i18n="fullScreenButton"
+              onclick="fullScreen()">Full Screen</button>
+    </div>
+  </div>
 
-    // DOM에 번역 적용 함수
-    function updateContent() {
-      document.getElementById('mapSelectionLabel').textContent = i18next.t('mapSelectionLabel');
-      document.getElementById('autoScreenshotDetectionLabel').textContent = i18next.t('autoScreenshotDetectionLabel');
-      document.getElementById('hideShowPanelsButton').textContent = i18next.t('hideShowPanelsButton');
-      document.getElementById('fullScreenButton').textContent = i18next.t('fullScreenButton');
-      document.getElementById('forceRunButton').textContent = i18next.t('forceRunButton');
-      document.getElementById('howToUseLink').textContent = i18next.t('howToUseLink');
-      document.getElementById('bugLink').textContent = i18next.t('bugLink');
-      document.getElementById('autoMapDetectionLabel').textContent = i18next.t('autoMapDetectionLabel');
-      document.getElementById('autoPanningLabel').textContent = i18next.t('autoPanningLabel');
-      document.getElementById('floorDbEditorButton').textContent = i18next.t('floorDbEditorButton');
-      document.getElementById('autoScreenshotCleanupLabel').textContent = i18next.t('autoScreenshotCleanupLabel');
-    }
+  <!-- 자동화 -->
+  <div class="group">
+    <div class="group-title" data-i18n="panelGroupAutomation">Automation</div>
+    <div class="row">
+      <label class="chip">
+        <input type="checkbox" id="autoDetect" onchange="checkboxChanged()">
+        <span id="autoScreenshotDetectionLabel" data-i18n="autoScreenshotDetectionLabel">Auto Screenshot Detection</span>
+      </label>
+      <label class="chip">
+        <input type="checkbox" id="autoMapDetect" onchange="autoMapToggle()">
+        <span id="autoMapDetectionLabel" data-i18n="autoMapDetectionLabel">Auto Map Detection</span>
+      </label>
+      <label class="chip">
+        <input type="checkbox" id="autoPanning" onchange="autoPanningToggle()">
+        <span id="autoPanningLabel" data-i18n="autoPanningLabel">Auto Panning</span>
+      </label>
+    </div>
+    <div class="row">
+      <label class="chip" id="autoCaptureChip">
+        <input type="checkbox" id="autoCapture" onchange="autoCaptureToggle()">
+        <span id="autoCaptureLabel" data-i18n="autoCaptureLabel">Auto Capture</span>
+      </label>
+      <select id="autoCaptureInterval" class="select" onchange="autoCaptureIntervalChanged()" title="Interval">
+        <option value="3">3s</option>
+        <option value="5" selected>5s</option>
+        <option value="10">10s</option>
+        <option value="15">15s</option>
+        <option value="30">30s</option>
+      </select>
+      <label class="chip">
+        <input type="checkbox" id="autoScreenshotCleanup" onchange="autoScreenshotCleanupToggle()">
+        <span id="autoScreenshotCleanupLabel" data-i18n="autoScreenshotCleanupLabel">Auto Screenshot Cleanup</span>
+      </label>
+    </div>
+  </div>
 
-    function setTheme(theme) {
-      try {
-        document.body.classList.toggle('theme-dark', theme === 'dark');
-      } catch (error) {
-        console.error("setTheme 오류 발생: ", error);
-      }
-    }
+  <!-- 모바일 레이더 -->
+  <div class="group">
+    <div class="group-title" data-i18n="panelGroupRadar">Mobile Radar</div>
+    <div class="row">
+      <label class="chip">
+        <input type="checkbox" id="mobileRadar" onchange="mobileRadarToggle()">
+        <span id="mobileRadarLabel" data-i18n="mobileRadarLabel">Phone View</span>
+      </label>
+    </div>
+    <div class="row" id="radarBox">
+      <span id="radarUrl" class="off" data-i18n="radarOffText">Off</span>
+      <button class="btn btn-sm hidden" id="radarCopyButton" data-i18n="radarCopyButton"
+              onclick="copyRadarUrl()">Copy</button>
+    </div>
+  </div>
 
-    // C#에서 호출하는 함수: 언어 설정
-    function setLanguage(language) {
-      try {
-        // 언어 선택 <select> 요소의 값을 변경
-        const select = document.getElementById('languageSelect');
-        if(select) {
-          select.value = language;
-        }
-        // i18next를 통해 언어 변경 (비동기 처리는 필요시 then()으로 체이닝 가능)
-        i18next.changeLanguage(language)
-          .then(() => {
-            updateContent(); // DOM 텍스트 업데이트
-          })
-          .catch(error => {
-            console.error("i18next changeLanguage 오류 발생:", error);
-          });
-        console.log("Language set to:", language); // 디버그용 출력
-      } catch (error) {
-        console.error("setLanguage 오류 발생: ", error);
-      }
-    }
+  <!-- 도움말 -->
+  <div class="group">
+    <div class="group-title" data-i18n="panelGroupHelp">Help</div>
+    <div class="links">
+      <a id="howToUseLink" data-i18n="howToUseLink"
+         href="https://github.com/karpitony/eft-where-am-i/blob/main/README.md">How To Use</a>
+      <a id="bugLink" data-i18n="bugLink"
+         href="https://github.com/karpitony/eft-where-am-i/issues">Bug Report</a>
+    </div>
+  </div>
 
-    // C#에서 호출하는 함수: 맵 목록 채우기
-    function populateMapList(mapsJson, selectedMap) {
-      try {
-        const maps = JSON.parse(mapsJson);
-        const select = document.getElementById('mapSelect');
-        select.innerHTML = '';
+</div>
 
-        maps.forEach(map => {
-            const option = document.createElement('option');
-            const value = typeof map === 'string' ? map : map.value;
-            const label = typeof map === 'string' ? map : map.label;
-            option.value = value;
-            option.textContent = label;
-            select.appendChild(option);
-        });
+<div id="toast"></div>
 
-        if (selectedMap) {
-          select.value = selectedMap;
-        }
-        console.log("기본 선택된 맵:", selectedMap); // 디버그용 출력
-      } catch (error) {
-          console.error("populateMapList 오류: ", error);
-      }
-    }
+<script>
+  // ── i18next ────────────────────────────────────────────
+  i18next
+    .use(i18nextHttpBackend)
+    .init({
+      lng: "en",
+      fallbackLng: "en",
+      debug: false,
+      backend: { loadPath: "https://appassets/{{lng}}.json" }
+    })
+    .then(updateContent)
+    .catch(err => console.error("i18next 초기화 오류:", err));
 
-    // C#에서 호출하는 함수: 초기 체크박스 상태 설정
-    function setCheckboxState(isChecked) {
-      try {
-          const checkbox = document.getElementById('autoDetect');
-          checkbox.checked = isChecked;
-          console.log("Checkbox state set to:", isChecked);  // 디버그용 출력
-      } catch (error) {
-          console.error("setCheckboxState 오류 발생: ", error);
-      }
-    }
-
-    // 맵 선택 시 C#으로 상태 전달
-    function mapSelected() {
-      const selectedMap = document.getElementById('mapSelect').value;
-      console.log("Selected map:", selectedMap);  // 디버그용 콘솔 출력
-      window.chrome.webview.postMessage(JSON.stringify({ action: 'map-selected', map: selectedMap }));
-    }
-
-    // 체크박스 상태 변경 시 C#으로 상태 전달
-    function checkboxChanged() {
-      const isChecked = document.getElementById('autoDetect').checked;
-      console.log("Checkbox state changed to:", isChecked);  // 디버그용 콘솔 출력
-      window.chrome.webview.postMessage(JSON.stringify({ action: 'checkbox-updated', isChecked: isChecked }));
-    }
-
-    // Hide/Show Panel 버튼 클릭 시
-    function hideShowPanel() {
-      window.chrome.webview.postMessage(JSON.stringify({
-          action: 'hide-show-panel'
-      }));
-    }
-
-    // Full Screen 버튼 클릭 시
-    function fullScreen() {
-      window.chrome.webview.postMessage(JSON.stringify({
-          action: 'full-screen'
-      }));
-    }
-
-    // Force Run 버튼 클릭 시
-    function forceRun() {
-      window.chrome.webview.postMessage(JSON.stringify({
-          action: 'force-run'
-      }));
-    }
-
-    // Auto Map Detection 토글
-    function autoMapToggle() {
-      const isChecked = document.getElementById('autoMapDetect').checked;
-      window.chrome.webview.postMessage(JSON.stringify({ action: 'auto-map-toggle', isChecked: isChecked }));
-    }
-
-    // C#에서 호출: 자동 맵 감지 체크박스 상태 설정
-    function setAutoMapCheckboxState(isChecked) {
-      try {
-        const checkbox = document.getElementById('autoMapDetect');
-        checkbox.checked = isChecked;
-      } catch (error) {
-        console.error("setAutoMapCheckboxState error:", error);
-      }
-    }
-
-    // Auto Panning 토글
-    function autoPanningToggle() {
-      const isChecked = document.getElementById('autoPanning').checked;
-      window.chrome.webview.postMessage(JSON.stringify({ action: 'auto-panning-toggle', isChecked: isChecked }));
-    }
-
-    // C#에서 호출: 자동 패닝 체크박스 상태 설정
-    function setAutoPanningCheckboxState(isChecked) {
-      try {
-        const checkbox = document.getElementById('autoPanning');
-        checkbox.checked = isChecked;
-      } catch (error) {
-        console.error("setAutoPanningCheckboxState error:", error);
-      }
-    }
-
-    // Auto Screenshot Cleanup 토글
-    function autoScreenshotCleanupToggle() {
-      const isChecked = document.getElementById('autoScreenshotCleanup').checked;
-      window.chrome.webview.postMessage(JSON.stringify({
-        action: 'auto-screenshot-cleanup-toggle', isChecked: isChecked
-      }));
-    }
-
-    // C#에서 호출: 스크린샷 자동 삭제 체크박스 상태 설정
-    function setAutoScreenshotCleanupCheckboxState(isChecked) {
-      try {
-        document.getElementById('autoScreenshotCleanup').checked = isChecked;
-      } catch (error) {
-        console.error("setAutoScreenshotCleanupCheckboxState error:", error);
-      }
-    }
-
-    // C#에서 호출: 디버그 모드 설정 (Floor DB Editor 버튼 표시/숨김)
-    function setDebugMode(isDebug) {
-      try {
-        const btn = document.getElementById('floorDbEditorButton');
-        btn.style.display = isDebug ? 'block' : 'none';
-      } catch (error) {
-        console.error("setDebugMode error:", error);
-      }
-    }
-
-    // Floor Zone Edit Mode 토글
-    function toggleFloorEditMode() {
-      window.chrome.webview.postMessage(JSON.stringify({ action: 'toggle-floor-edit-mode' }));
-    }
-
-    // How To Use 링크
-    document.querySelector('#howToUseLink').addEventListener('click', function(e) {
-      e.preventDefault();
-      window.chrome.webview.postMessage(JSON.stringify({
-        action: 'link-clicked',
-        url: this.href
-      }));
+  // data-i18n 을 단 요소를 전부 훑습니다.
+  // 새 라벨을 추가할 때 이 함수를 고칠 필요가 없습니다.
+  function updateContent() {
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const key = el.getAttribute('data-i18n');
+      const value = i18next.t(key);
+      // 번역이 없으면 i18next 는 키를 그대로 돌려주므로 기본 텍스트를 유지합니다.
+      if (value && value !== key) el.textContent = value;
     });
+    refreshRadarUrlText();
+  }
 
-    // Bug Report 링크
-    document.querySelector('#bugLink').addEventListener('click', function(e) {
-      e.preventDefault();
-      window.chrome.webview.postMessage(JSON.stringify({
-        action: 'link-clicked',
-        url: this.href
-      }));
+  function setTheme(theme) {
+    try {
+      // 기본이 다크라, 라이트일 때만 클래스를 붙입니다.
+      document.body.classList.toggle('theme-light', theme === 'light');
+    } catch (error) {
+      console.error("setTheme 오류 발생: ", error);
+    }
+  }
+
+  function setLanguage(language) {
+    try {
+      i18next.changeLanguage(language)
+        .then(updateContent)
+        .catch(error => console.error("i18next changeLanguage 오류 발생:", error));
+    } catch (error) {
+      console.error("setLanguage 오류 발생: ", error);
+    }
+  }
+
+  function post(payload) {
+    window.chrome.webview.postMessage(JSON.stringify(payload));
+  }
+
+  function showToast(text) {
+    const toast = document.getElementById('toast');
+    toast.textContent = text;
+    toast.classList.add('show');
+    clearTimeout(showToast._timer);
+    showToast._timer = setTimeout(() => toast.classList.remove('show'), 1600);
+  }
+
+  // ── C# -> UI ───────────────────────────────────────────
+  function populateMapList(mapsJson, selectedMap) {
+    try {
+      const maps = JSON.parse(mapsJson);
+      const select = document.getElementById('mapSelect');
+      select.innerHTML = '';
+
+      maps.forEach(map => {
+        const option = document.createElement('option');
+        option.value = typeof map === 'string' ? map : map.value;
+        option.textContent = typeof map === 'string' ? map : map.label;
+        select.appendChild(option);
+      });
+
+      if (selectedMap) select.value = selectedMap;
+    } catch (error) {
+      console.error("populateMapList 오류: ", error);
+    }
+  }
+
+  function setChecked(id, isChecked) {
+    const el = document.getElementById(id);
+    if (el) el.checked = !!isChecked;
+  }
+
+  function setCheckboxState(isChecked) { setChecked('autoDetect', isChecked); }
+  function setAutoMapCheckboxState(isChecked) { setChecked('autoMapDetect', isChecked); }
+  function setAutoPanningCheckboxState(isChecked) { setChecked('autoPanning', isChecked); }
+  function setAutoScreenshotCleanupCheckboxState(isChecked) { setChecked('autoScreenshotCleanup', isChecked); }
+  function setMobileRadarState(isEnabled) { setChecked('mobileRadar', isEnabled); }
+
+  function setAutoCaptureState(isEnabled, intervalSec) {
+    setChecked('autoCapture', isEnabled);
+    const select = document.getElementById('autoCaptureInterval');
+    if (select && intervalSec) {
+      const value = String(intervalSec);
+      // 목록에 없는 값이면 항목을 만들어 줍니다 (설정 파일을 직접 고친 경우)
+      if (![...select.options].some(o => o.value === value)) {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = value + 's';
+        select.appendChild(opt);
+      }
+      select.value = value;
+    }
+  }
+
+  let radarUrl = '';
+  let radarRunning = false;
+
+  function setRadarStatus(isRunning, url) {
+    radarRunning = !!isRunning;
+    radarUrl = url || '';
+    refreshRadarUrlText();
+  }
+
+  function refreshRadarUrlText() {
+    const label = document.getElementById('radarUrl');
+    const copyBtn = document.getElementById('radarCopyButton');
+    if (!label || !copyBtn) return;
+
+    if (radarRunning && radarUrl) {
+      label.textContent = radarUrl;
+      label.title = radarUrl;
+      label.classList.remove('off');
+      copyBtn.classList.remove('hidden');
+    } else {
+      const offText = i18next.t('radarOffText');
+      label.textContent = (offText && offText !== 'radarOffText') ? offText : 'Off';
+      label.title = '';
+      label.classList.add('off');
+      copyBtn.classList.add('hidden');
+    }
+  }
+
+  function setDebugMode(isDebug) {
+    const btn = document.getElementById('floorDbEditorButton');
+    if (btn) btn.style.display = isDebug ? 'inline-block' : 'none';
+  }
+
+  // ── UI -> C# ───────────────────────────────────────────
+  function mapSelected() {
+    post({ action: 'map-selected', map: document.getElementById('mapSelect').value });
+  }
+
+  function checkboxChanged() {
+    post({ action: 'checkbox-updated', isChecked: document.getElementById('autoDetect').checked });
+  }
+
+  function autoMapToggle() {
+    post({ action: 'auto-map-toggle', isChecked: document.getElementById('autoMapDetect').checked });
+  }
+
+  function autoPanningToggle() {
+    post({ action: 'auto-panning-toggle', isChecked: document.getElementById('autoPanning').checked });
+  }
+
+  function autoScreenshotCleanupToggle() {
+    post({ action: 'auto-screenshot-cleanup-toggle', isChecked: document.getElementById('autoScreenshotCleanup').checked });
+  }
+
+  function autoCaptureToggle() {
+    const isChecked = document.getElementById('autoCapture').checked;
+    post({ action: 'auto-screenshot-capture-toggle', isChecked: isChecked });
+    if (isChecked) {
+      // 스크린샷 감지도 함께 켜지므로 UI 를 맞춰줍니다.
+      setChecked('autoDetect', true);
+    }
+  }
+
+  function autoCaptureIntervalChanged() {
+    post({
+      action: 'auto-screenshot-interval',
+      value: parseInt(document.getElementById('autoCaptureInterval').value, 10)
     });
-  </script>
+  }
+
+  function mobileRadarToggle() {
+    post({ action: 'mobile-radar-toggle', isChecked: document.getElementById('mobileRadar').checked });
+    // 서버 기동 후 주소를 받아오기 위해 잠시 뒤 상태를 다시 요청합니다.
+    setTimeout(() => post({ action: 'mobile-radar-status' }), 400);
+  }
+
+  function copyRadarUrl() {
+    post({ action: 'copy-radar-url' });
+    const copied = i18next.t('radarCopiedToast');
+    showToast((copied && copied !== 'radarCopiedToast') ? copied : 'Copied');
+  }
+
+  function hideShowPanel() { post({ action: 'hide-show-panel' }); }
+  function fullScreen() { post({ action: 'full-screen' }); }
+  function forceRun() { post({ action: 'force-run' }); }
+  function toggleFloorEditMode() { post({ action: 'toggle-floor-edit-mode' }); }
+
+  // 외부 링크는 기본 브라우저로 열도록 C# 에 넘깁니다.
+  document.querySelectorAll('#howToUseLink, #bugLink').forEach(link => {
+    link.addEventListener('click', function (e) {
+      e.preventDefault();
+      post({ action: 'link-clicked', url: this.href });
+    });
+  });
+</script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using Microsoft.Data.Sqlite;
@@ -36,7 +36,7 @@ namespace eft_where_am_i.Classes
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[QuestRepository] Error initializing database: {ex.Message}");
+                AppLogger.Error("QuestRepository", $"DB 초기화 실패: {ex.Message}");
             }
         }
 
@@ -44,8 +44,6 @@ namespace eft_where_am_i.Classes
         {
             try
             {
-                Console.WriteLine($"[QuestRepository] AddQuest: map={mapName}, quest={questName}");
-
                 using var connection = new SqliteConnection(_connectionString);
                 connection.Open();
 
@@ -56,11 +54,11 @@ namespace eft_where_am_i.Classes
                 command.Parameters.AddWithValue("$mapName", mapName);
                 command.Parameters.AddWithValue("$questName", questName);
                 int rows = command.ExecuteNonQuery();
-                Console.WriteLine($"[QuestRepository] AddQuest result: {rows} rows affected");
+                AppLogger.Debug("QuestRepository", $"퀘스트 추가 map={mapName} quest={questName} rows={rows}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[QuestRepository] Error adding quest: {ex.Message}");
+                AppLogger.Error("QuestRepository", $"퀘스트 추가 실패: {ex.Message}");
             }
         }
 
@@ -81,7 +79,7 @@ namespace eft_where_am_i.Classes
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[QuestRepository] Error removing quest: {ex.Message}");
+                AppLogger.Error("QuestRepository", $"퀘스트 삭제 실패: {ex.Message}");
             }
         }
 
@@ -90,8 +88,6 @@ namespace eft_where_am_i.Classes
             var quests = new List<string>();
             try
             {
-                Console.WriteLine($"[QuestRepository] GetQuests: map={mapName}");
-
                 using var connection = new SqliteConnection(_connectionString);
                 connection.Open();
 
@@ -107,13 +103,11 @@ namespace eft_where_am_i.Classes
                     quests.Add(reader.GetString(0));
                 }
 
-                Console.WriteLine($"[QuestRepository] GetQuests result: {quests.Count} quests found");
-                foreach (var q in quests)
-                    Console.WriteLine($"[QuestRepository]   - {q}");
+                AppLogger.Debug("QuestRepository", $"퀘스트 조회 map={mapName} count={quests.Count}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[QuestRepository] Error getting quests: {ex.Message}");
+                AppLogger.Error("QuestRepository", $"퀘스트 조회 실패: {ex.Message}");
             }
             return quests;
         }

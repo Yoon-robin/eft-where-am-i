@@ -411,3 +411,5 @@ FodyWeavers.xsd
 *.sln.iml
 
 # End of https://www.toptal.com/developers/gitignore/api/csharp
+# 사용자 설정은 %APPDATA%\eft-where-am-i 에 저장됩니다. 빌드 산출물이 남긴 흔적은 무시.
+eft-where-am-i/assets/settings.json

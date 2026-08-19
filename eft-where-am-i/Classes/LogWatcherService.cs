@@ -19,31 +19,6 @@ namespace eft_where_am_i.Classes
             @"\[Transit\] `([a-f0-9]+)` Count:(\d+), EventPlayer:(True|False)",
             RegexOptions.Compiled);
 
-        private static readonly Dictionary<string, string> MapNameMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            { "woods_preset", "woods" },
-            { "customs_preset", "customs" },
-            { "bigmap", "customs" },
-            { "shoreline_preset", "shoreline" },
-            { "shopping_mall", "interchange" },
-            { "rezerv_base_preset", "reserve" },
-            { "rezervbase", "reserve" },
-            { "lighthouse_preset", "lighthouse" },
-            { "city_preset", "streets" },
-            { "tarkovstreets", "streets" },
-            { "factory_day_preset", "factory" },
-            { "factory_night_preset", "factory" },
-            { "factory4_day", "factory" },
-            { "factory4_night", "factory" },
-            { "sandbox_preset", "ground-zero" },
-            { "sandbox_high_preset", "ground-zero" },
-            { "sandbox", "ground-zero" },
-            { "sandbox_high", "ground-zero" },
-            { "laboratory_preset", "lab" },
-            { "laboratory", "lab" },
-            { "labyrinth_preset", "labyrinth" },
-        };
-
         private const int POLL_INTERVAL_MS = 2000;
         private const int FOLDER_CHECK_INTERVAL_SEC = 30;
 
@@ -225,14 +200,15 @@ namespace eft_where_am_i.Classes
             {
                 string rawMapName = match.Groups[1].Value;
 
-                if (MapNameMapping.TryGetValue(rawMapName, out string mappedName))
+                if (MapCatalog.TryResolveSlug(rawMapName, out string mappedName))
                 {
-                    AppLogger.Info("LogWatcher", $"Map detected: {rawMapName} -> {mappedName}");
+                    AppLogger.Info("LogWatcher", $"맵 감지: {rawMapName} -> {mappedName}");
                     MapDetected?.Invoke(mappedName);
                 }
                 else
                 {
-                    AppLogger.Warn("LogWatcher", $"Unknown map name in log: {rawMapName}");
+                    // 새 맵이 추가되면 여기에 찍힙니다. 이 이름을 이슈로 올려주시면 매핑에 반영됩니다.
+                    AppLogger.Warn("LogWatcher", $"매핑되지 않은 씬 번들 이름: {rawMapName}");
                 }
                 return;
             }

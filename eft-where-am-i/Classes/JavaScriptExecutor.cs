@@ -1,16 +1,28 @@
-using System;
-using System.Reflection.Emit;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
-using System.Windows.Forms;
 using Microsoft.Web.WebView2.WinForms;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace eft_where_am_i.Classes
 {
+    /// <summary>층 레이어 클릭 결과. 실제 페이지에 어떤 라벨이 있었는지도 함께 알려줍니다.</summary>
+    public class FloorClickResult
+    {
+        public static readonly FloorClickResult Failed = new FloorClickResult();
+
+        public bool Matched { get; set; }
+
+        /// <summary>실제로 클릭된 라벨. 다음번에 이 값을 먼저 시도하도록 학습하는 데 씁니다.</summary>
+        public string MatchedName { get; set; }
+
+        /// <summary>페이지에 존재하는 전체 레이어 라벨 목록.</summary>
+        public string[] AvailableLabels { get; set; } = Array.Empty<string>();
+    }
+
     public class JavaScriptExecutor
     {
         private readonly WebView2 webView;
@@ -25,7 +37,7 @@ namespace eft_where_am_i.Classes
         /// 따옴표, 백슬래시, 줄바꿈 등 모든 특수문자를 올바르게 이스케이프하여
         /// JS 코드 인젝션을 방지합니다. null 입력도 안전하게 처리합니다.
         /// </summary>
-        private static string JsLiteral(string value)
+        public static string JsLiteral(string value)
         {
             return JsonConvert.SerializeObject(value ?? string.Empty);
         }
@@ -58,7 +70,8 @@ namespace eft_where_am_i.Classes
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"JavaScript 실행 중 오류가 발생했습니다: {ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                // 게임이 전체화면일 때 모달을 띄우면 포커스를 뺏기므로 로그로만 남깁니다.
+                AppLogger.Error("JS", $"스크립트 실행 실패: {ex.Message}");
             }
         }
 
@@ -84,8 +97,8 @@ namespace eft_where_am_i.Classes
         {
             string script = $@"
             (function() {{
-                // Prefer the specific input inside panel_top > div:nth-child(4)
-                var preferred = document.querySelector('#__nuxt > div > div > div.page-content > div > div > div.panel_top > div > div:nth-child(4) > input[type=text]');
+                // 설정된 입력창 셀렉터를 우선 사용
+                var preferred = document.querySelector({JsLiteral(SelectorConfig.LocationInput)});
                 if (preferred) {{
                     const isVisibleP = preferred.offsetParent !== null;
                     const isEnabledP = !preferred.disabled && !preferred.readOnly;
@@ -116,7 +129,7 @@ namespace eft_where_am_i.Classes
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"JS 실행 실패: {ex.Message}");
+                AppLogger.Error("JS", $"CheckInputAble 실패: {ex.Message}");
                 return false;
             }
         }
@@ -135,9 +148,9 @@ namespace eft_where_am_i.Classes
                 (function() {{
                     var input = document.querySelector({Selector});
 
-                    // Prefer specific input inside panel_top > div:nth-child(4)
+                    // 설정된 입력창 셀렉터를 우선 사용
                     try {{
-                        var preferred = document.querySelector('#__nuxt > div > div > div.page-content > div > div > div.panel_top > div > div:nth-child(4) > input[type=text]');
+                        var preferred = document.querySelector({JsLiteral(SelectorConfig.LocationInput)});
                         if (preferred) input = preferred;
                     }} catch(e) {{}}
 
@@ -224,70 +237,14 @@ namespace eft_where_am_i.Classes
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[JS] WaitForQuestContainer polling error: {ex.Message}");
+                    AppLogger.Debug("JS", $"WaitForQuestContainer 폴링 오류: {ex.Message}");
                 }
 
                 await Task.Delay(500, cancellationToken);
             }
 
-            Console.WriteLine($"[JS] WaitForQuestContainer timed out after {timeoutMs}ms");
+            AppLogger.Warn("JS", $"퀘스트 컨테이너 대기 시간 초과 ({timeoutMs}ms)");
             return false;
-        }
-
-        /// <summary>
-        /// 현재 선택된 퀘스트 이름 목록을 추출합니다.
-        /// 선택된 퀘스트는 'data-quest-selected' 속성으로 구분됩니다.
-        /// </summary>
-        public async Task<List<string>> GetSelectedQuestsAsync()
-        {
-            string script = @"
-            (function() {
-                const container = document.querySelector('div.items.scroll');
-                if (!container) return JSON.stringify([]);
-
-                const isSelectedState = (el) => {
-                    if (!el) return false;
-                    // Primary check: data attribute
-                    if (el.getAttribute('data-quest-selected') === 'true') return true;
-                    if (el.classList.contains('selected')) return true;
-                    if (el.classList.contains('active')) return true;
-                    if (el.getAttribute('aria-selected') === 'true') return true;
-                    if (el.getAttribute('data-selected') === 'true') return true;
-                    if (el.getAttribute('data-state') === 'selected') return true;
-                    if (el.getAttribute('aria-pressed') === 'true') return true;
-                    return false;
-                };
-
-                const items = container.querySelectorAll('div.no-wrap.d-flex, div.no-wrap, .quest, .quest-item, [data-quest-name]');
-                const selected = [];
-                for (const item of items) {
-                    // Only check the item itself
-                    if (isSelectedState(item)) {
-                        const span = item.querySelector('span:not(.alt)');
-                        if (span) {
-                            selected.push(span.innerText.trim());
-                        }
-                    }
-                }
-                return JSON.stringify(selected);
-            })()";
-
-            try
-            {
-                string result = await webView.ExecuteScriptAsync(script);
-                // Result comes back as a JSON string wrapped in quotes
-                if (string.IsNullOrEmpty(result) || result == "null")
-                    return new List<string>();
-
-                // Unescape the JSON string (WebView2 returns it double-encoded)
-                string json = JsonConvert.DeserializeObject<string>(result);
-                return JsonConvert.DeserializeObject<List<string>>(json) ?? new List<string>();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[JS] GetSelectedQuests error: {ex.Message}");
-                return new List<string>();
-            }
         }
 
         /// <summary>
@@ -338,285 +295,124 @@ namespace eft_where_am_i.Classes
         }
 
         /// <summary>
-        /// 모든 퀘스트 선택을 해제하고 새로운 퀘스트만 선택합니다.
+        /// 여러 층 이름 후보를 한 번의 JS 호출로 시도합니다. 순서대로 매칭하여 첫 번째 매칭을 클릭합니다.
+        /// 매칭에 실패하면 페이지에 실제로 존재하는 레이어 라벨을 로그로 남깁니다.
+        /// (floor_db 의 층 이름과 tarkov-market 의 라벨이 어긋났을 때 진단용)
         /// </summary>
-        public async Task SelectQuestByNameAsyncExclusive(string questName)
+        public async Task<FloorClickResult> ClickFloorByFirstMatchAsync(string[] floorNames)
         {
-            string escapedName = JsLiteral(questName);
-            string script = $@"
-            (function() {{
-                console.log('[Quest Load] Exclusive search for:', {escapedName});
+            if (floorNames == null || floorNames.Length == 0) return FloorClickResult.Failed;
 
-                const container = document.querySelector('div.items.scroll');
-                if (!container) {{
-                    console.log('[Quest Load] Container not found');
-                    return;
-                }}
-
-                const items = container.querySelectorAll('div.no-wrap.d-flex');
-                console.log('[Quest Load] Items count:', items.length);
-
-                window.__questRestoreInProgress = true;
-
-                // Clear ALL selection markers
-                const allElements = container.querySelectorAll('*');
-                allElements.forEach(el => {{
-                    el.removeAttribute('data-quest-selected');
-                    el.classList.remove('selected', 'active');
-                    el.removeAttribute('aria-selected');
-                    el.removeAttribute('data-selected');
-                    el.removeAttribute('data-state');
-                    el.removeAttribute('aria-pressed');
-                }});
-
-                // Select ONLY the target quest
-                for (const item of items) {{
-                    const span = item.querySelector('span:not(.alt)');
-                    if (span && span.innerText.trim() === {escapedName}) {{
-                        console.log('[Quest Load] Found, applying selected state');
-                        item.setAttribute('data-quest-selected', 'true');
-                        item.classList.add('selected', 'active');
-                        item.setAttribute('aria-selected', 'true');
-                        setTimeout(() => {{ window.__questRestoreInProgress = false; }}, 300);
-                        return;
-                    }}
-                }}
-
-                window.__questRestoreInProgress = false;
-                console.log('[Quest Load] Quest not found in list');
-            }})()";
-
-            await ExecuteScriptAsync(script);
-        }
-
-        /// <summary>
-        /// 층 버튼을 클릭하여 맵 층을 전환합니다.
-        /// </summary>
-        public async Task ClickFloorAsync(string floorName)
-        {
-            string escapedName = JsLiteral(floorName);
-            string script = $@"
-            (function() {{
-                const inputs = document.querySelectorAll('.no-wrap input[name=""layers""]');
-                for (const input of inputs) {{
-                    if (input.parentNode.innerText.includes({escapedName})) {{
-                        input.click();
-                        break;
-                    }}
-                }}
-            }})()";
-
-            await ExecuteScriptAsync(script);
-        }
-
-        /// <summary>
-        /// 층 버튼을 이름으로 찾아 클릭합니다. 매칭되면 true, 없으면 false를 반환합니다.
-        /// </summary>
-        public async Task<bool> ClickFloorByNameAsync(string floorName)
-        {
             try
             {
                 await EnsureWebViewInitializedAsync();
-                if (webView.CoreWebView2 == null) return false;
+                if (webView.CoreWebView2 == null) return FloorClickResult.Failed;
 
-                string escapedName = JsLiteral(floorName);
+                string jsArray = "[" + string.Join(",", floorNames.Select(JsLiteral)) + "]";
+
                 string script = $@"
                 (function() {{
-                    const inputs = document.querySelectorAll('.no-wrap input[name=""layers""]');
-                    for (const input of inputs) {{
-                        if (input.parentNode.innerText.includes({escapedName})) {{
-                            input.click();
-                            return 'true';
-                        }}
+                    var names = {jsArray};
+                    var inputs = document.querySelectorAll('.no-wrap input[name=layers]');
+                    var labels = [];
+                    for (var i = 0; i < inputs.length; i++) {{
+                        var parent = inputs[i].parentNode;
+                        labels.push(parent ? (parent.innerText || '').trim() : '');
                     }}
-                    return 'false';
-                }})()";
-
-                string result = await webView.CoreWebView2.ExecuteScriptAsync(script);
-                return result?.Trim('"') == "true";
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// 여러 층 이름 후보를 한 번의 JS 호출로 시도합니다. 순서대로 매칭하여 첫 번째 매칭을 클릭.
-        /// </summary>
-        public async Task<bool> ClickFloorByFirstMatchAsync(string[] floorNames)
-        {
-            try
-            {
-                await EnsureWebViewInitializedAsync();
-                if (webView.CoreWebView2 == null) return false;
-
-                string jsArray = "[" + string.Join(",", (floorNames ?? Array.Empty<string>()).Select(n => JsLiteral(n))) + "]";
-
-                string script = $@"
-                (function() {{
-                    const names = {jsArray};
-                    const inputs = document.querySelectorAll('.no-wrap input[name=""layers""]');
-                    for (const name of names) {{
-                        for (const input of inputs) {{
-                            if (input.parentNode.innerText.includes(name)) {{
-                                input.click();
-                                return 'true';
+                    for (var n = 0; n < names.length; n++) {{
+                        for (var i = 0; i < inputs.length; i++) {{
+                            if (labels[i].includes(names[n])) {{
+                                inputs[i].click();
+                                return JSON.stringify({{ matched: true, name: names[n], labels: labels }});
                             }}
                         }}
                     }}
-                    return 'false';
+                    return JSON.stringify({{ matched: false, labels: labels }});
                 }})()";
 
-                string result = await webView.CoreWebView2.ExecuteScriptAsync(script);
-                return result?.Trim('"') == "true";
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// 층 버튼을 인덱스로 클릭하여 맵 층을 전환합니다.
-        /// index 0 = 마지막 버튼 (Underground), index 1~4 = (index-1)번째 버튼.
-        /// </summary>
-        public async Task ClickFloorByIndexAsync(int index)
-        {
-            string script = $@"
-            (function() {{
-                const inputs = document.querySelectorAll('.no-wrap input[name=""layers""]');
-                if (inputs.length === 0) return;
-                var target;
-                if ({index} === 0) {{
-                    target = inputs[inputs.length - 1];
-                }} else {{
-                    var i = {index} - 1;
-                    if (i < inputs.length) target = inputs[i];
-                }}
-                if (target) target.click();
-            }})()";
-
-            await ExecuteScriptAsync(script);
-        }
-
-        /// <summary>
-        /// 마커의 CSS left/top 위치를 읽습니다.
-        /// </summary>
-        private async Task<(bool found, double left, double top)> ReadMarkerPositionAsync()
-        {
-            try
-            {
-                string raw = await webView.CoreWebView2.ExecuteScriptAsync(Constants.READ_MARKER_POSITION_SCRIPT);
-                if (string.IsNullOrEmpty(raw) || raw == "null") return (false, 0, 0);
+                string raw = await webView.CoreWebView2.ExecuteScriptAsync(script);
+                if (string.IsNullOrEmpty(raw) || raw == "null") return FloorClickResult.Failed;
 
                 string json = JsonConvert.DeserializeObject<string>(raw);
-                var obj = JObject.Parse(json);
-                bool found = obj["found"]?.Value<bool>() ?? false;
-                if (!found) return (false, 0, 0);
+                if (string.IsNullOrEmpty(json)) return FloorClickResult.Failed;
 
-                double left = obj["left"]?.Value<double>() ?? 0;
-                double top = obj["top"]?.Value<double>() ?? 0;
-                int count = obj["count"]?.Value<int>() ?? 0;
-                AppLogger.Debug("Calibration", $"Marker pos: left={left}, top={top}, count={count}");
-                return (true, left, top);
+                var obj = JObject.Parse(json);
+                bool matched = obj["matched"]?.Value<bool>() ?? false;
+
+                string[] labels = obj["labels"]?
+                    .Select(t => t.ToString())
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .ToArray() ?? Array.Empty<string>();
+
+                if (!matched)
+                {
+                    AppLogger.Warn("Floor",
+                        $"층 이름 매칭 실패. 후보=[{string.Join(", ", floorNames)}] / 페이지 라벨=[{string.Join(", ", labels)}]");
+                }
+
+                return new FloorClickResult
+                {
+                    Matched = matched,
+                    MatchedName = obj["name"]?.ToString(),
+                    AvailableLabels = labels,
+                };
             }
             catch (Exception ex)
             {
-                AppLogger.Error("Calibration", $"ReadMarkerPosition error: {ex.Message}");
-                return (false, 0, 0);
+                AppLogger.Error("Floor", $"ClickFloorByFirstMatch 실패: {ex.Message}");
+                return FloorClickResult.Failed;
             }
         }
 
         /// <summary>
-        /// C# 오케스트레이션 방식 캘리브레이션.
-        /// 기존에 잘 되는 SetInputValueAsync를 사용하여 프로브 좌표를 입력하고,
-        /// 마커의 CSS left/top으로 pixel 좌표를 읽습니다.
+        /// 현재 마커가 어느 층 zone 에 있는지 브라우저 쪽에서 판정합니다.
+        ///
+        /// 폴리곤(zone.polygon)은 맵 CSS 픽셀 좌표라서 C# 이 가진 게임 좌표로는 판정할 수 없습니다.
+        /// 마커의 픽셀 위치를 아는 브라우저에 위임하고, 높이 판정에 쓰는 게임 y 좌표만 넘깁니다.
         /// </summary>
-        public async Task<bool> CalibrateMapAsync()
+        /// <param name="zonesJson">해당 맵의 zones 배열 JSON</param>
+        /// <param name="gameY">스크린샷 파일명에서 파싱한 게임 y 좌표(= 높이)</param>
+        /// <returns>판정된 층 이름. 판정 불가 시 null</returns>
+        public async Task<string> DetectFloorAsync(string zonesJson, double gameY)
         {
             try
             {
-                AppLogger.Info("Calibration", "Starting C#-orchestrated calibration...");
-
                 await EnsureWebViewInitializedAsync();
-                if (webView.CoreWebView2 == null)
+                if (webView.CoreWebView2 == null) return null;
+
+                string script = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "(function(){{ return window.__detectFloor ? window.__detectFloor(JSON.parse({0}), {1}) : null; }})()",
+                    JsLiteral(zonesJson ?? "[]"),
+                    gameY);
+
+                string raw = await webView.CoreWebView2.ExecuteScriptAsync(script);
+                if (string.IsNullOrEmpty(raw) || raw == "null")
                 {
-                    AppLogger.Error("Calibration", "CoreWebView2 is null");
-                    return false;
+                    AppLogger.Warn("Floor", "__detectFloor 가 주입되지 않았습니다.");
+                    return null;
                 }
 
-                // Save original input value
-                string origRaw = await webView.CoreWebView2.ExecuteScriptAsync(
-                    "(function(){ var i = document.querySelector('input[type=\"text\"]'); return i ? i.value : ''; })()");
-                string originalValue = origRaw?.Trim('"') ?? "";
-                AppLogger.Debug("Calibration", $"Original input value: [{originalValue}]");
+                string json = JsonConvert.DeserializeObject<string>(raw);
+                if (string.IsNullOrEmpty(json)) return null;
 
-                // Probe A: set (0,0,0) with proper filename format
-                // Format: YYYY-MM-DD[HH-MM]_x, y, z_quatX, quatY, quatZ, quatW_speed
-                string probeA = "2000-01-01[00-00]_0.00, 0.00, 0.00_0.00, 0.00, 0.00, 1.00_0.00";
-                AppLogger.Debug("Calibration", $"Setting probe A: {probeA}");
-                await SetInputValueAsync("input[type=\"text\"]", probeA);
-                await Task.Delay(2000);
-
-                var posA = await ReadMarkerPositionAsync();
-                if (!posA.found)
+                var obj = JObject.Parse(json);
+                if (!(obj["ok"]?.Value<bool>() ?? false))
                 {
-                    AppLogger.Error("Calibration", "Probe A: no marker found");
-                    await SetInputValueAsync("input[type=\"text\"]", originalValue);
-                    return false;
-                }
-                AppLogger.Info("Calibration", $"Probe A: left={posA.left}, top={posA.top}");
-
-                // Probe B: set (1000,0,1000) with proper filename format
-                // Note: y is height in Tarkov, so we change x and z for map X/Y axes
-                string probeB = "2000-01-01[00-00]_1000.00, 0.00, 1000.00_0.00, 0.00, 0.00, 1.00_0.00";
-                AppLogger.Debug("Calibration", $"Setting probe B: {probeB}");
-                await SetInputValueAsync("input[type=\"text\"]", probeB);
-                await Task.Delay(2000);
-
-                var posB = await ReadMarkerPositionAsync();
-                if (!posB.found)
-                {
-                    AppLogger.Error("Calibration", "Probe B: no marker found");
-                    await SetInputValueAsync("input[type=\"text\"]", originalValue);
-                    return false;
-                }
-                AppLogger.Info("Calibration", $"Probe B: left={posB.left}, top={posB.top}");
-
-                // Check positions differ
-                if (Math.Abs(posA.left - posB.left) < 1 && Math.Abs(posA.top - posB.top) < 1)
-                {
-                    AppLogger.Error("Calibration", "Probes at same position - marker did not move");
-                    await SetInputValueAsync("input[type=\"text\"]", originalValue);
-                    return false;
+                    AppLogger.Debug("Floor", $"층 판정 불가: {obj["reason"]}");
+                    return null;
                 }
 
-                // Calculate affine: pixel = game * scale + offset
-                double scaleX = (posB.left - posA.left) / 1000.0;
-                double scaleY = (posB.top - posA.top) / 1000.0;
-                double offsetX = posA.left;
-                double offsetY = posA.top;
+                string floor = obj["floor"]?.ToString();
+                AppLogger.Debug("Floor",
+                    $"판정 결과 floor={floor ?? "(none)"} marker=({obj["markerX"]}, {obj["markerY"]}) gameY={gameY.ToString(CultureInfo.InvariantCulture)}");
 
-                AppLogger.Info("Calibration",
-                    $"Success: scaleX={scaleX:F4}, scaleY={scaleY:F4}, offsetX={offsetX:F1}, offsetY={offsetY:F1}");
-
-                // Inject JS conversion functions
-                string injectScript = string.Format(
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    Constants.INJECT_CALIBRATION_FUNCTIONS,
-                    scaleX, scaleY, offsetX, offsetY);
-                await webView.CoreWebView2.ExecuteScriptAsync(injectScript);
-
-                // Restore original input
-                await SetInputValueAsync("input[type=\"text\"]", originalValue);
-
-                return true;
+                return string.IsNullOrWhiteSpace(floor) ? null : floor;
             }
             catch (Exception ex)
             {
-                AppLogger.Error("Calibration", $"Exception: {ex.Message}\n{ex.StackTrace}");
-                return false;
+                AppLogger.Error("Floor", $"DetectFloor 실패: {ex.Message}");
+                return null;
             }
         }
 
@@ -703,7 +499,7 @@ namespace eft_where_am_i.Classes
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[AutoPan] CDP drag failed: {ex.Message}");
+                AppLogger.Warn("AutoPan", $"CDP 드래그 실패: {ex.Message}");
                 return false;
             }
         }
@@ -752,7 +548,7 @@ namespace eft_where_am_i.Classes
                 bool cdpSuccess = await CdpMouseDragAsync(startX, startY, endX, endY, steps: 10, animate: animate);
                 if (cdpSuccess)
                 {
-                    Console.WriteLine($"[AutoPan] Panned via CDP: dx={dx}, dy={dy}");
+                    AppLogger.Debug("AutoPan", $"CDP 패닝: dx={dx}, dy={dy}");
                     return true;
                 }
 
@@ -769,7 +565,7 @@ namespace eft_where_am_i.Classes
 
                     if (fallbackPanned)
                     {
-                        Console.WriteLine($"[AutoPan] Panned via CSS fallback: dx={fallbackObj["dx"]}, dy={fallbackObj["dy"]}, animated={animate}");
+                        AppLogger.Debug("AutoPan", $"CSS 폴백 패닝: dx={fallbackObj["dx"]}, dy={fallbackObj["dy"]}, animated={animate}");
                         return true;
                     }
                 }
@@ -778,7 +574,7 @@ namespace eft_where_am_i.Classes
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[AutoPan] Error: {ex.Message}");
+                AppLogger.Error("AutoPan", $"패닝 실패: {ex.Message}");
                 return false;
             }
         }
@@ -796,7 +592,7 @@ namespace eft_where_am_i.Classes
 
                 string script = $@"
                 (function() {{
-                    var btn = document.querySelector({JsLiteral(Constants.HIDE_SHOW_PANNE_BUTTON_SELECTOR)});
+                    var btn = document.querySelector({JsLiteral(SelectorConfig.HideShowPanelButton)});
                     if (!btn) return 'false';
 
                     var text = (btn.textContent || '').toLowerCase();
@@ -832,7 +628,7 @@ namespace eft_where_am_i.Classes
 
                     string script = $@"
                     (function() {{
-                        var btn = document.querySelector({JsLiteral(Constants.HIDE_SHOW_PANNE_BUTTON_SELECTOR)});
+                        var btn = document.querySelector({JsLiteral(SelectorConfig.HideShowPanelButton)});
                         if (!btn) return 'not-found';
                         btn.click();
                         return 'clicked';

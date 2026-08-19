@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b0b10">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Where Am I · Radar</title>
+<style>
+  :root {
+    /* 데스크톱 앱과 같은 다크 + 바이올렛 팔레트 */
+    --bg: #0b0b10;
+    --panel: rgba(30, 30, 42, 0.82);
+    --border: rgba(255, 255, 255, 0.12);
+    --text: #d9d9e3;
+    --muted: #8b8ba3;
+    --accent: #8b6dff;
+    --ok: #5fd39a;
+    --warn: #e0b25c;
+    --err: #f0736c;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    overscroll-behavior: none;
+  }
+
+  /* ── 지도 무대 ─────────────────────────────── */
+  #stage {
+    position: fixed;
+    inset: 0;
+    touch-action: none;
+    overflow: hidden;
+    background:
+      radial-gradient(700px 340px at 50% -8%, rgba(139, 109, 255, 0.13), transparent 62%),
+      var(--bg);
+  }
+
+  #frame {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+    image-rendering: auto;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+
+  /* ── 상단 바 ──────────────────────────────── */
+  #topbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: calc(var(--safe-top) + 8px) 12px 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: linear-gradient(to bottom, rgba(11, 11, 16, 0.94), rgba(11, 11, 16, 0));
+    pointer-events: none;
+    z-index: 10;
+    transition: opacity 0.25s ease;
+  }
+
+  #topbar.hidden { opacity: 0; }
+
+  #dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex: none;
+    box-shadow: 0 0 8px currentColor;
+    transition: background 0.2s ease;
+  }
+  #dot.live { background: var(--ok); }
+  #dot.stale { background: var(--warn); }
+  #dot.down { background: var(--err); }
+
+  #maplabel {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  #meta {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  }
+
+  /* ── 하단 컨트롤 ──────────────────────────── */
+  #controls {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 10px 12px calc(var(--safe-bottom) + 12px);
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    align-items: center;
+    z-index: 10;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+  }
+
+  #controls.hidden {
+    opacity: 0;
+    transform: translateY(12px);
+    pointer-events: none;
+  }
+
+  .btn {
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--panel);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 11px;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .btn:active { background: rgba(255, 255, 255, 0.14); }
+  .btn.on {
+    border-color: var(--accent);
+    color: #c3b2ff;
+    box-shadow: 0 0 18px -6px var(--accent);
+  }
+
+  /* ── 안내 오버레이 ────────────────────────── */
+  #hint {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 32px;
+    text-align: center;
+    z-index: 20;
+    background:
+      radial-gradient(600px 300px at 50% 20%, rgba(139, 109, 255, 0.14), transparent 65%),
+      var(--bg);
+    transition: opacity 0.3s ease;
+  }
+
+  #hint.gone { opacity: 0; pointer-events: none; }
+
+  #hint h1 { font-size: 17px; font-weight: 700; }
+  #hint p { font-size: 13px; color: var(--muted); line-height: 1.6; max-width: 300px; }
+
+  .spinner {
+    width: 26px;
+    height: 26px;
+    border: 2.5px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <img id="frame" alt="">
+</div>
+
+<div id="topbar">
+  <div id="dot"></div>
+  <div id="maplabel">연결 중…</div>
+  <div id="meta"></div>
+</div>
+
+<div id="controls">
+  <button class="btn" id="btnFit">맞춤</button>
+  <button class="btn" id="btnRate">2초</button>
+  <button class="btn" id="btnWake">화면 유지</button>
+  <button class="btn" id="btnFull">전체화면</button>
+</div>
+
+<div id="hint">
+  <div class="spinner"></div>
+  <h1 id="hintTitle">레이더에 연결하는 중</h1>
+  <p id="hintBody">PC에서 맵이 열려 있어야 화면이 전송됩니다.<br>한 손가락으로 이동, 두 손가락으로 확대·축소할 수 있어요.</p>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const stage = document.getElementById('stage');
+  const img = document.getElementById('frame');
+  const dot = document.getElementById('dot');
+  const mapLabel = document.getElementById('maplabel');
+  const meta = document.getElementById('meta');
+  const hint = document.getElementById('hint');
+  const topbar = document.getElementById('topbar');
+  const controls = document.getElementById('controls');
+
+  // ── 상태 ──────────────────────────────────
+  let lastFrameId = -1;
+  let lastUpdateAt = 0;
+  let hasFirstFrame = false;
+  let objectUrl = null;
+  let fetching = false;
+
+  const RATES = [1000, 2000, 5000];
+  const RATE_LABELS = ['1초', '2초', '5초'];
+  let rateIndex = 1;
+  let pollTimer = null;
+
+  // ── 뷰 변환 (팬 / 줌) ─────────────────────
+  let view = { x: 0, y: 0, scale: 1 };
+  let fitScale = 1;
+  let userAdjusted = false;
+
+  function applyView() {
+    img.style.transform =
+      'translate(' + view.x + 'px,' + view.y + 'px) scale(' + view.scale + ')';
+  }
+
+  function fitToScreen() {
+    if (!img.naturalWidth) return;
+
+    const sw = stage.clientWidth;
+    const sh = stage.clientHeight;
+    fitScale = Math.min(sw / img.naturalWidth, sh / img.naturalHeight);
+
+    view.scale = fitScale;
+    view.x = (sw - img.naturalWidth * fitScale) / 2;
+    view.y = (sh - img.naturalHeight * fitScale) / 2;
+    userAdjusted = false;
+    applyView();
+  }
+
+  function clampView() {
+    // 이미지가 화면 밖으로 완전히 빠져나가지 않도록 최소한만 붙잡아 둡니다.
+    const w = img.naturalWidth * view.scale;
+    const h = img.naturalHeight * view.scale;
+    const margin = 80;
+
+    view.x = Math.min(stage.clientWidth - margin, Math.max(margin - w, view.x));
+    view.y = Math.min(stage.clientHeight - margin, Math.max(margin - h, view.y));
+  }
+
+  // ── 포인터 제스처 ─────────────────────────
+  const pointers = new Map();
+  let pinchStart = null;
+  let panStart = null;
+  let movedDistance = 0;
+
+  stage.addEventListener('pointerdown', function (e) {
+    stage.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    movedDistance = 0;
+
+    if (pointers.size === 1) {
+      panStart = { px: e.clientX, py: e.clientY, vx: view.x, vy: view.y };
+      pinchStart = null;
+    } else if (pointers.size === 2) {
+      const pts = [...pointers.values()];
+      pinchStart = {
+        dist: distance(pts[0], pts[1]),
+        cx: (pts[0].x + pts[1].x) / 2,
+        cy: (pts[0].y + pts[1].y) / 2,
+        scale: view.scale,
+        vx: view.x,
+        vy: view.y
+      };
+      panStart = null;
+    }
+  });
+
+  stage.addEventListener('pointermove', function (e) {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointers.size === 2 && pinchStart) {
+      const pts = [...pointers.values()];
+      const dist = distance(pts[0], pts[1]);
+      if (pinchStart.dist <= 0) return;
+
+      const ratio = dist / pinchStart.dist;
+      const next = Math.min(8, Math.max(0.1, pinchStart.scale * ratio));
+
+      // 두 손가락 중심을 기준으로 확대되도록 보정
+      view.scale = next;
+      view.x = pinchStart.cx - (pinchStart.cx - pinchStart.vx) * (next / pinchStart.scale);
+      view.y = pinchStart.cy - (pinchStart.cy - pinchStart.vy) * (next / pinchStart.scale);
+      userAdjusted = true;
+      clampView();
+      applyView();
+    } else if (pointers.size === 1 && panStart) {
+      const dx = e.clientX - panStart.px;
+      const dy = e.clientY - panStart.py;
+      movedDistance = Math.hypot(dx, dy);
+
+      view.x = panStart.vx + dx;
+      view.y = panStart.vy + dy;
+      userAdjusted = true;
+      clampView();
+      applyView();
+    }
+  });
+
+  function releasePointer(e) {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchStart = null;
+    if (pointers.size === 0) panStart = null;
+  }
+
+  stage.addEventListener('pointerup', function (e) {
+    // 거의 움직이지 않았으면 탭으로 보고 UI 를 토글합니다.
+    if (movedDistance < 8 && pointers.size === 1) toggleChrome();
+    releasePointer(e);
+  });
+  stage.addEventListener('pointercancel', releasePointer);
+
+  function distance(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+
+  // 데스크톱 브라우저에서도 확인할 수 있게 휠 줌 지원
+  stage.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const next = Math.min(8, Math.max(0.1, view.scale * factor));
+
+    view.x = e.clientX - (e.clientX - view.x) * (next / view.scale);
+    view.y = e.clientY - (e.clientY - view.y) * (next / view.scale);
+    view.scale = next;
+    userAdjusted = true;
+    clampView();
+    applyView();
+  }, { passive: false });
+
+  // ── UI 토글 ───────────────────────────────
+  let chromeVisible = true;
+  function toggleChrome() {
+    chromeVisible = !chromeVisible;
+    topbar.classList.toggle('hidden', !chromeVisible);
+    controls.classList.toggle('hidden', !chromeVisible);
+  }
+
+  // ── 프레임 폴링 ───────────────────────────
+  async function poll() {
+    try {
+      const res = await fetch('status?t=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) throw new Error('status ' + res.status);
+
+      const data = await res.json();
+      mapLabel.textContent = data.map || 'Where Am I';
+
+      if (data.frameId !== lastFrameId && data.frameBytes > 0) {
+        lastFrameId = data.frameId;
+        await loadFrame();
+      } else if (!hasFirstFrame) {
+        // PC 와는 통했지만 아직 보낼 화면이 없는 상태입니다.
+        // 원인이 다르므로 안내 문구를 바꿔줍니다.
+        setHint('PC에서 맵을 준비하는 중',
+                'PC 앱에서 맵 화면이 열려 있는지 확인해 주세요.<br>화면이 준비되면 자동으로 표시됩니다.');
+      }
+      updateIndicator(true);
+    } catch (err) {
+      if (!hasFirstFrame) {
+        setHint('PC에 연결할 수 없습니다',
+                '같은 Wi-Fi에 연결되어 있는지, PC 앱에서 모바일 레이더가 켜져 있는지 확인해 주세요.');
+      }
+      updateIndicator(false);
+    }
+  }
+
+  function setHint(title, bodyHtml) {
+    const t = document.getElementById('hintTitle');
+    const b = document.getElementById('hintBody');
+    if (t) t.textContent = title;
+    if (b) b.innerHTML = bodyHtml;
+  }
+
+  async function loadFrame() {
+    if (fetching) return;
+    fetching = true;
+
+    try {
+      const res = await fetch('frame.jpg?t=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) throw new Error('frame ' + res.status);
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+
+      await new Promise(function (resolve, reject) {
+        const probe = new Image();
+        probe.onload = function () {
+          const sizeChanged =
+            probe.naturalWidth !== img.naturalWidth || probe.naturalHeight !== img.naturalHeight;
+
+          img.src = url;
+          if (objectUrl) URL.revokeObjectURL(objectUrl);
+          objectUrl = url;
+
+          // 첫 프레임이거나 해상도가 바뀌면 화면에 맞춥니다.
+          if (!hasFirstFrame || (sizeChanged && !userAdjusted)) {
+            requestAnimationFrame(fitToScreen);
+          }
+          hasFirstFrame = true;
+          hint.classList.add('gone');
+          resolve();
+        };
+        probe.onerror = reject;
+        probe.src = url;
+      });
+
+      lastUpdateAt = Date.now();
+    } catch (err) {
+      /* 다음 폴링에서 재시도 */
+    } finally {
+      fetching = false;
+    }
+  }
+
+  function updateIndicator(online) {
+    const age = lastUpdateAt ? Math.round((Date.now() - lastUpdateAt) / 1000) : null;
+
+    if (!online) {
+      dot.className = 'down';
+      meta.textContent = 'PC 연결 끊김';
+      return;
+    }
+
+    if (age === null) {
+      dot.className = '';
+      meta.textContent = '대기 중';
+    } else if (age <= 10) {
+      dot.className = 'live';
+      meta.textContent = age + '초 전';
+    } else {
+      dot.className = 'stale';
+      meta.textContent = age + '초 전';
+    }
+  }
+
+  function restartPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(poll, RATES[rateIndex]);
+    poll();
+  }
+
+  // ── 버튼 ──────────────────────────────────
+  document.getElementById('btnFit').addEventListener('click', function (e) {
+    e.stopPropagation();
+    fitToScreen();
+  });
+
+  const btnRate = document.getElementById('btnRate');
+  btnRate.addEventListener('click', function (e) {
+    e.stopPropagation();
+    rateIndex = (rateIndex + 1) % RATES.length;
+    btnRate.textContent = RATE_LABELS[rateIndex];
+    restartPolling();
+  });
+
+  // 화면 꺼짐 방지 (지원하는 브라우저에서만)
+  const btnWake = document.getElementById('btnWake');
+  let wakeLock = null;
+
+  async function toggleWakeLock(e) {
+    if (e) e.stopPropagation();
+
+    if (!('wakeLock' in navigator)) {
+      btnWake.textContent = '미지원';
+      btnWake.disabled = true;
+      return;
+    }
+
+    try {
+      if (wakeLock) {
+        await wakeLock.release();
+        wakeLock = null;
+        btnWake.classList.remove('on');
+      } else {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', function () {
+          wakeLock = null;
+          btnWake.classList.remove('on');
+        });
+        btnWake.classList.add('on');
+      }
+    } catch (err) {
+      btnWake.textContent = '실패';
+    }
+  }
+  btnWake.addEventListener('click', toggleWakeLock);
+
+  // 탭이 다시 보이면 wake lock 을 복구합니다 (브라우저가 자동 해제하므로)
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') {
+      if (btnWake.classList.contains('on') && !wakeLock) toggleWakeLock();
+      poll();
+    }
+  });
+
+  const btnFull = document.getElementById('btnFull');
+  btnFull.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+      btnFull.classList.remove('on');
+    } else if (document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().then(function () {
+        btnFull.classList.add('on');
+      }).catch(function () { /* iOS Safari 는 지원하지 않습니다 */ });
+    }
+  });
+
+  window.addEventListener('resize', function () {
+    if (!userAdjusted) fitToScreen();
+  });
+
+  // 표시 시간은 프레임이 안 와도 흘러가므로 따로 갱신합니다.
+  setInterval(function () {
+    if (hasFirstFrame) updateIndicator(dot.className !== 'down');
+  }, 1000);
+
+  restartPolling();
+})();
+</script>
+</body>
+</html>

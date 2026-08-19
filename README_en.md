@@ -76,6 +76,40 @@ Saves the state of the tarkov-market panel. When you switch maps and return, the
 Automatically detects raid end and cleans up screenshot files.
 If you need to preserve your screenshots, please uncheck this option.
 
+### Auto Capture (take screenshots on a timer)
+
+Turn on **Auto Capture** in the panel and the app presses the in-game screenshot key for you
+every 3-30 seconds while Tarkov is the active window, so your position keeps updating without
+you touching the keyboard.
+
+- The key is configurable in Settings (default `Print Screen`).
+- Nothing is sent unless the Tarkov window is focused, so no keystrokes leak into other apps.
+- Enabling Auto Capture also enables Auto Screenshot Detection, since taking shots without
+  reading them would do nothing.
+
+> [!WARNING]
+> This injects input into the game. Automated input may run afoul of BSG's rules, so it ships
+> disabled and the decision to use it is yours. It may also simply not work if the game filters
+> injected input.
+
+### Mobile Radar (view the map on your phone)
+
+Mirror the PC map view to a phone on the same network - handy as a second screen when you
+don't have a second monitor.
+
+1. Turn on **Phone View** in the panel.
+2. Open the address shown in the panel (`http://192.168.x.x:8787/code/`) on your phone.
+   Use `Copy` to copy it, or find it again in Settings.
+3. One finger pans, two fingers zoom, and a single tap hides the overlay.
+   - `Keep awake` stops the phone screen from sleeping.
+   - Refresh rate can be set to 1s / 2s / 5s.
+
+- **Windows Firewall** will ask for permission the first time. Allow it, or the phone cannot connect.
+- Frames are only captured while a phone is actually watching, so it costs nothing when idle.
+- The access code in the URL keeps other people on the network from casually peeking.
+  You can issue a new code from Settings.
+- Change the port in Settings if `8787` is already taken.
+
 ## System Requirements
 
 | Component | Requirement |
@@ -140,6 +174,35 @@ Choose a map from the top-left dropdown. If Auto Map Detection is enabled, the m
 | Auto Map Detection | Automatically switch maps when entering a raid |
 | Auto Panning | Deadzone-based automatic map scrolling |
 | Floor Zone Editor | Edit floor zones for multi-level maps |
+
+### Where settings are stored
+
+Settings live in `%APPDATA%\eft-where-am-i\settings.json`.
+
+Because they sit in your user profile rather than the install folder, **they survive app updates**.
+If you are coming from an older version (which stored `assets\settings.json` inside the install
+folder), your settings are migrated automatically on first launch.
+
+Logs are written to `app.log` next to the executable. Attaching it to a bug report makes diagnosis
+much faster.
+
+### When a site change breaks a feature
+
+This app drives tarkov-market.com by locating its buttons and inputs through CSS selectors. If the
+site's markup changes, the affected feature stops working — but you can fix it yourself instead of
+waiting for a new release.
+
+Create `%APPDATA%\eft-where-am-i\selectors.json` and override only the selectors that changed. It
+takes precedence over the bundled `assets\selectors.json`.
+
+```json
+{
+  "hide_show_panel_button": "...",
+  "full_screen_button": "...",
+  "where_am_i_button": "...",
+  "location_input": "..."
+}
+```
 
 ## Contributing
 
