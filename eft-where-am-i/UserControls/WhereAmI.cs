@@ -736,6 +736,10 @@ namespace eft_where_am_i
             try
             {
                 await CheckLocationAsync();
+
+                // 타이머(1초)를 기다리지 않고 바로 폰으로 보냅니다.
+                // 위치가 갱신된 직후가 화면이 가장 최신인 시점입니다.
+                await CaptureRadarFrameAsync();
             }
             catch (Exception ex)
             {
@@ -1071,8 +1075,9 @@ namespace eft_where_am_i
         {
             try
             {
-                // 파일 생성 후 사용 가능해질 때까지 잠시 대기
-                await Task.Delay(500);
+                // 게임이 파일을 다 쓸 때까지 기다립니다.
+                // 예전에는 무조건 500ms 를 쉬었는데, 대부분은 그보다 훨씬 빨리 준비됩니다.
+                await WaitForFileReadyAsync(e.FullPath);
 
                 if (IsDisposed || Disposing || !IsHandleCreated) return;
 
@@ -1085,6 +1090,34 @@ namespace eft_where_am_i
             catch (Exception ex)
             {
                 AppLogger.Error("WhereAmI", $"스크린샷 감지 처리 실패: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 스크린샷 파일이 열릴 때까지 짧게 재시도합니다.
+        /// 게임이 아직 쓰고 있는 동안에는 공유 위반이 나므로, 열리는 순간이 곧 완료 시점입니다.
+        /// </summary>
+        private static async Task WaitForFileReadyAsync(string path, int timeoutMs = 3000)
+        {
+            var started = DateTime.UtcNow;
+
+            while ((DateTime.UtcNow - started).TotalMilliseconds < timeoutMs)
+            {
+                try
+                {
+                    using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    if (stream.Length > 0) return;
+                }
+                catch (IOException)
+                {
+                    // 아직 게임이 쓰는 중
+                }
+                catch (Exception)
+                {
+                    return;   // 접근 권한 등 다른 문제면 그냥 진행
+                }
+
+                await Task.Delay(30);
             }
         }
 

@@ -390,9 +390,9 @@ namespace eft_where_am_i.Classes
 
         private async Task RouteAsync(NetworkStream stream, string rawPath, CancellationToken token)
         {
-            // 쿼리스트링 제거
             int q = rawPath.IndexOf('?');
             string path = q >= 0 ? rawPath.Substring(0, q) : rawPath;
+            string query = q >= 0 ? rawPath.Substring(q + 1) : string.Empty;
             path = path.Trim('/');
 
             string[] segments = path.Length == 0
@@ -419,7 +419,7 @@ namespace eft_where_am_i.Classes
                     resource = segments.Length > 1 ? segments[1].ToLowerInvariant() : string.Empty;
                 }
 
-                await ServeResourceAsync(stream, resource, token);
+                await ServeResourceAsync(stream, resource, query, token);
                 return;
             }
 
@@ -452,14 +452,14 @@ namespace eft_where_am_i.Classes
             TouchClient();
 
             resource = segments.Length > 1 ? segments[1].ToLowerInvariant() : string.Empty;
-            await ServeResourceAsync(stream, resource, token);
+            await ServeResourceAsync(stream, resource, query, token);
         }
 
         /// <summary>서버가 실제로 제공하는 경로. 그 외 첫 세그먼트는 접근 코드로 간주합니다.</summary>
         private static readonly HashSet<string> KnownResources =
             new HashSet<string>(StringComparer.Ordinal) { "", "frame.jpg", "status", "favicon.ico" };
 
-        private async Task ServeResourceAsync(NetworkStream stream, string resource, CancellationToken token)
+        private async Task ServeResourceAsync(NetworkStream stream, string resource, string query, CancellationToken token)
         {
             switch (resource)
             {
@@ -472,7 +472,7 @@ namespace eft_where_am_i.Classes
                     break;
 
                 case "status":
-                    await ServeStatusAsync(stream, token);
+                    await ServeStatusAsync(stream, query, token);
                     break;
 
                 case "favicon.ico":
@@ -537,8 +537,34 @@ namespace eft_where_am_i.Classes
             await stream.FlushAsync(token);
         }
 
-        private async Task ServeStatusAsync(NetworkStream stream, CancellationToken token)
+        /// <summary>
+        /// 현재 상태를 알려줍니다.
+        ///
+        /// <c>?since=N&amp;wait=ms</c> 를 주면 프레임 번호가 N 에서 바뀔 때까지 최대 ms 만큼
+        /// 응답을 붙잡고 있다가 곧바로 돌려줍니다(롱폴링). 폰이 일정 주기로 되묻는 방식보다
+        /// 새 화면을 훨씬 빨리 받아볼 수 있습니다.
+        /// </summary>
+        private async Task ServeStatusAsync(NetworkStream stream, string query, CancellationToken token)
         {
+            long since = ParseLong(query, "since", -1);
+            int waitMs = (int)Math.Clamp(ParseLong(query, "wait", 0), 0, 20000);
+
+            if (waitMs > 0)
+            {
+                var deadline = DateTime.UtcNow.AddMilliseconds(waitMs);
+                while (DateTime.UtcNow < deadline && !token.IsCancellationRequested)
+                {
+                    lock (_gate)
+                    {
+                        if (_frameId != since) break;
+                    }
+
+                    // 대기 중에도 캡처가 계속 돌도록 클라이언트가 살아 있다고 알려 둡니다.
+                    TouchClient();
+                    await Task.Delay(40, token);
+                }
+            }
+
             long frameId;
             int size;
             lock (_gate)
@@ -584,6 +610,22 @@ namespace eft_where_am_i.Classes
         /// 요청 라인과 헤더 전체를 빈 줄(\r\n\r\n)까지 읽습니다.
         /// 남은 데이터를 소켓에 두고 닫으면 클라이언트가 연결이 끊겼다고 판단합니다.
         /// </summary>
+        private static long ParseLong(string query, string key, long fallback)
+        {
+            if (string.IsNullOrEmpty(query)) return fallback;
+
+            foreach (var part in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+            {
+                int eq = part.IndexOf('=');
+                if (eq <= 0) continue;
+                if (!string.Equals(part.Substring(0, eq), key, StringComparison.OrdinalIgnoreCase)) continue;
+
+                return long.TryParse(part.Substring(eq + 1), out long value) ? value : fallback;
+            }
+
+            return fallback;
+        }
+
         private static async Task<string> ReadRequestHeadAsync(NetworkStream stream, CancellationToken token)
         {
             const int MaxHeadBytes = 16 * 1024;

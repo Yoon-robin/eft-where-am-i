@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -21,7 +21,7 @@ namespace eft_where_am_i.Classes
     {
         private const string TargetProcessName = "EscapeFromTarkov";
 
-        public const int MinIntervalSeconds = 2;
+        public const int MinIntervalSeconds = 1;
         public const int MaxIntervalSeconds = 60;
         public const int DefaultIntervalSeconds = 5;
 

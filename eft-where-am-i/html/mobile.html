@@ -203,7 +203,7 @@
 
 <div id="controls">
   <button class="btn" id="btnFit">맞춤</button>
-  <button class="btn" id="btnRate">2초</button>
+  <button class="btn" id="btnRate">실시간</button>
   <button class="btn" id="btnWake">화면 유지</button>
   <button class="btn" id="btnFull">전체화면</button>
 </div>
@@ -234,10 +234,16 @@
   let objectUrl = null;
   let fetching = false;
 
-  const RATES = [1000, 2000, 5000];
-  const RATE_LABELS = ['1초', '2초', '5초'];
-  let rateIndex = 1;
-  let pollTimer = null;
+  // 실시간 모드는 롱폴링입니다. 서버가 새 화면이 생기는 즉시 응답을 돌려주므로
+  // 폰이 주기적으로 되묻는 대기 시간이 사라집니다.
+  const MODES = [
+    { label: '실시간', wait: 10000, gap: 0 },
+    { label: '1초',   wait: 0,     gap: 1000 },
+    { label: '5초',   wait: 0,     gap: 5000 },
+  ];
+  let modeIndex = 0;
+  let loopRunning = false;
+  let inFlight = null;
 
   // ── 뷰 변환 (팬 / 줌) ─────────────────────
   let view = { x: 0, y: 0, scale: 1 };
@@ -373,9 +379,29 @@
   }
 
   // ── 프레임 폴링 ───────────────────────────
-  async function poll() {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  async function pollLoop() {
+    if (loopRunning) return;
+    loopRunning = true;
+
+    while (loopRunning) {
+      const mode = MODES[modeIndex];
+      const ok = await poll(mode.wait);
+
+      // 실패하면 잠깐 쉬었다 재시도합니다. 안 그러면 연결이 끊긴 동안 폭주합니다.
+      if (!ok) await sleep(1000);
+      else if (mode.gap) await sleep(mode.gap);
+    }
+  }
+
+  async function poll(waitMs) {
     try {
-      const res = await fetch('status?t=' + Date.now(), { cache: 'no-store' });
+      // 진행 중인 롱폴링이 있으면 취소하고 새로 겁니다. (모드 전환 시)
+      inFlight = new AbortController();
+
+      const url = 'status?since=' + lastFrameId + '&wait=' + (waitMs || 0) + '&t=' + Date.now();
+      const res = await fetch(url, { cache: 'no-store', signal: inFlight.signal });
       if (!res.ok) throw new Error('status ' + res.status);
 
       const data = await res.json();
@@ -391,12 +417,16 @@
                 'PC 앱에서 맵 화면이 열려 있는지 확인해 주세요.<br>화면이 준비되면 자동으로 표시됩니다.');
       }
       updateIndicator(true);
+      return true;
     } catch (err) {
+      if (err && err.name === 'AbortError') return true;   // 모드 전환은 실패가 아닙니다
+
       if (!hasFirstFrame) {
         setHint('PC에 연결할 수 없습니다',
                 '같은 Wi-Fi에 연결되어 있는지, PC 앱에서 모바일 레이더가 켜져 있는지 확인해 주세요.');
       }
       updateIndicator(false);
+      return false;
     }
   }
 
@@ -469,10 +499,11 @@
     }
   }
 
-  function restartPolling() {
-    if (pollTimer) clearInterval(pollTimer);
-    pollTimer = setInterval(poll, RATES[rateIndex]);
-    poll();
+  function abortInFlight() {
+    if (inFlight) {
+      try { inFlight.abort(); } catch (e) { /* 무시 */ }
+      inFlight = null;
+    }
   }
 
   // ── 버튼 ──────────────────────────────────
@@ -482,11 +513,15 @@
   });
 
   const btnRate = document.getElementById('btnRate');
+  btnRate.textContent = MODES[modeIndex].label;
+  btnRate.classList.toggle('on', MODES[modeIndex].wait > 0);
+
   btnRate.addEventListener('click', function (e) {
     e.stopPropagation();
-    rateIndex = (rateIndex + 1) % RATES.length;
-    btnRate.textContent = RATE_LABELS[rateIndex];
-    restartPolling();
+    modeIndex = (modeIndex + 1) % MODES.length;
+    btnRate.textContent = MODES[modeIndex].label;
+    btnRate.classList.toggle('on', MODES[modeIndex].wait > 0);
+    abortInFlight();   // 대기 중인 롱폴링을 끊고 새 모드로 즉시 전환
   });
 
   // 화면 꺼짐 방지 (지원하는 브라우저에서만)
@@ -525,7 +560,7 @@
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') {
       if (btnWake.classList.contains('on') && !wakeLock) toggleWakeLock();
-      poll();
+      abortInFlight();   // 백그라운드에서 멈춰 있던 대기를 끊고 곧바로 다시 확인
     }
   });
 
@@ -551,7 +586,7 @@
     if (hasFirstFrame) updateIndicator(dot.className !== 'down');
   }, 1000);
 
-  restartPolling();
+  pollLoop();
 })();
 </script>
 </body>
