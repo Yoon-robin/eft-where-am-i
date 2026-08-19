@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -36,6 +36,7 @@ namespace eft_where_am_i.Classes
         private byte[] _currentFrame = Array.Empty<byte>();
         private long _frameId;
         private DateTime _lastClientUtc = DateTime.MinValue;
+        private DateTime _lastRejectLogUtc = DateTime.MinValue;
         private bool _disposed;
 
         public int Port { get; private set; } = DefaultPort;
@@ -300,7 +301,18 @@ namespace eft_where_am_i.Classes
 
             if (!string.Equals(segments[0], Token, StringComparison.Ordinal))
             {
-                AppLogger.Debug("Radar", "잘못된 접근 코드로 요청이 들어왔습니다.");
+                // 예전 주소를 열어둔 폰이 계속 재시도하면 로그가 도배되므로
+                // 같은 내용은 1분에 한 번만 남깁니다.
+                var now = DateTime.UtcNow;
+                lock (_gate)
+                {
+                    if (now - _lastRejectLogUtc > TimeSpan.FromMinutes(1))
+                    {
+                        _lastRejectLogUtc = now;
+                        AppLogger.Debug("Radar", "잘못된 접근 코드로 요청이 들어왔습니다. (주소가 바뀌었다면 폰에서 새 주소를 열어주세요)");
+                    }
+                }
+
                 await WriteSimpleAsync(stream, 403, "text/plain; charset=utf-8", "Forbidden", token);
                 return;
             }

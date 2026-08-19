@@ -137,12 +137,34 @@ namespace eft_where_am_i.Classes
                 catch (Exception ex)
                 {
                     // 설정이 깨졌다고 앱을 못 켜면 곤란하므로 기본값으로 복구합니다.
+                    // 다만 곧바로 덮어쓰면 원본이 사라지므로, 먼저 백업을 남깁니다.
+                    // (레이더 접근 코드처럼 다시 만들 수 없는 값이 조용히 날아가는 것을 막습니다)
                     AppLogger.Error("Settings", $"설정 로드 실패, 기본값으로 시작합니다: {ex.Message}");
+                    BackupCorruptSettings();
                     _settings = new AppSettings();
                 }
 
                 NormalizeSettings(_settings);
                 SaveUnlocked();
+            }
+        }
+
+        /// <summary>
+        /// 읽지 못한 설정 파일을 백업해 둡니다. 기본값으로 덮어쓰기 전에 호출합니다.
+        /// </summary>
+        private void BackupCorruptSettings()
+        {
+            try
+            {
+                if (!File.Exists(_filePath)) return;
+
+                string backupPath = _filePath + ".bak";
+                File.Copy(_filePath, backupPath, overwrite: true);
+                AppLogger.Warn("Settings", $"읽지 못한 설정을 백업했습니다: {backupPath}");
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Warn("Settings", $"설정 백업 실패: {ex.Message}");
             }
         }
 
