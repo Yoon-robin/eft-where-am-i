@@ -345,7 +345,15 @@ namespace eft_where_am_i.Classes
 
                     using var stream = client.GetStream();
 
-                    string requestLine = await ReadRequestLineAsync(stream, token);
+                    // 요청 헤더를 끝까지 읽습니다.
+                    //
+                    // 예전에는 첫 줄만 읽고 응답한 뒤 소켓을 닫았는데, 수신 버퍼에 안 읽은
+                    // 데이터가 남은 채 닫으면 Windows 가 FIN 대신 RST 를 보냅니다.
+                    // curl 은 그냥 넘어가지만 Safari 는 "네트워크 연결이 유실되었습니다" 로 실패합니다.
+                    string requestHead = await ReadRequestHeadAsync(stream, token);
+                    if (string.IsNullOrEmpty(requestHead)) return;
+
+                    string requestLine = requestHead.Split('\n')[0].TrimEnd('\r');
                     if (string.IsNullOrEmpty(requestLine)) return;
 
                     string[] parts = requestLine.Split(' ');
@@ -369,6 +377,9 @@ namespace eft_where_am_i.Classes
                     // FIN 을 보내 정상 종료를 알립니다. 이게 없으면 클라이언트가
                     // 응답을 다 받기 전에 연결이 끊긴 것으로 보게 됩니다.
                     try { client.Client.Shutdown(SocketShutdown.Send); } catch { }
+
+                    // 상대가 보낸 나머지를 비워 줍니다. 안 읽고 닫으면 RST 가 나갑니다.
+                    await DrainAsync(stream, token);
                 }
                 catch (Exception ex)
                 {
@@ -546,22 +557,61 @@ namespace eft_where_am_i.Classes
             await WriteSimpleAsync(stream, 200, "application/json; charset=utf-8", json, token);
         }
 
-        private static async Task<string> ReadRequestLineAsync(NetworkStream stream, CancellationToken token)
+        /// <summary>
+        /// 연결을 닫기 전에 남은 수신 데이터를 읽어 버립니다.
+        /// 짧게만 시도하고, 오래 걸리면 그냥 닫습니다.
+        /// </summary>
+        private static async Task DrainAsync(NetworkStream stream, CancellationToken token)
         {
-            var buffer = new byte[1];
-            var line = new StringBuilder(256);
+            try
+            {
+                var scratch = new byte[1024];
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                timeout.CancelAfter(TimeSpan.FromMilliseconds(300));
 
-            while (line.Length < 8192)
+                while (await stream.ReadAsync(scratch, timeout.Token) > 0)
+                {
+                    // 내용은 쓰지 않습니다. FIN 을 받을 때까지 비우기만 합니다.
+                }
+            }
+            catch
+            {
+                // 타임아웃이나 연결 종료는 정상입니다.
+            }
+        }
+
+        /// <summary>
+        /// 요청 라인과 헤더 전체를 빈 줄(\r\n\r\n)까지 읽습니다.
+        /// 남은 데이터를 소켓에 두고 닫으면 클라이언트가 연결이 끊겼다고 판단합니다.
+        /// </summary>
+        private static async Task<string> ReadRequestHeadAsync(NetworkStream stream, CancellationToken token)
+        {
+            const int MaxHeadBytes = 16 * 1024;
+
+            var buffer = new byte[1];
+            var head = new StringBuilder(1024);
+            int newlineRun = 0;
+
+            while (head.Length < MaxHeadBytes)
             {
                 int read = await stream.ReadAsync(buffer.AsMemory(0, 1), token);
-                if (read == 0) break;
+                if (read == 0) break;   // 클라이언트가 먼저 끊음
 
                 char c = (char)buffer[0];
-                if (c == '\n') break;
-                if (c != '\r') line.Append(c);
+                head.Append(c);
+
+                if (c == '\n')
+                {
+                    // 빈 줄이 나오면 헤더 끝
+                    if (++newlineRun == 2) break;
+                }
+                else if (c != '\r')
+                {
+                    newlineRun = 0;
+                }
             }
 
-            return line.ToString();
+            return head.ToString();
         }
 
         private static async Task WriteSimpleAsync(
