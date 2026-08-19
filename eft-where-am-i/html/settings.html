@@ -227,7 +227,14 @@
           <label class="field-label" id="radarPortText" for="radarPortInput">Port</label>
           <input type="number" id="radarPortInput" class="input" min="1024" max="65535" value="8787"
                  style="width:110px" onchange="onRadarPortChange()">
-          <button id="radarRegenerateButton" class="btn btn-sm" onclick="regenerateRadarToken()">New access code</button>
+        </div>
+
+        <div class="field">
+          <label class="chip">
+            <input type="checkbox" id="radarRequireCode" onchange="onRadarRequireCodeChange()">
+            <span id="radarRequireCodeLabel">Require access code</span>
+          </label>
+          <button id="radarRegenerateButton" class="btn btn-sm hidden" onclick="regenerateRadarToken()">New access code</button>
         </div>
 
         <div class="row">
@@ -286,6 +293,7 @@
     'deadZoneLabel', 'themeSectionTitle',
     'autoCaptureSectionTitle', 'autoCaptureKeyText', 'autoCaptureHelpText',
     'radarSectionTitle', 'radarPortText', 'radarHelpText', 'radarRegenerateButton',
+    'radarRequireCodeLabel',
     'appVersionText', 'checkUpdateButton',
     'howToUseLink', 'bugLink', 'footerText'
   ];
@@ -410,10 +418,17 @@
   }
 
   // ── 모바일 레이더 ──────────────────────────────────────
-  function setRadarInfo(port, url) {
+  function setRadarInfo(port, url, requireCode) {
     try {
       const portInput = document.getElementById('radarPortInput');
       if (portInput && port) portInput.value = port;
+
+      const codeToggle = document.getElementById('radarRequireCode');
+      if (codeToggle) codeToggle.checked = !!requireCode;
+
+      // 접근 코드를 쓸 때만 재발급 버튼이 의미가 있습니다.
+      const regen = document.getElementById('radarRegenerateButton');
+      if (regen) regen.classList.toggle('hidden', !requireCode);
 
       const display = document.getElementById('radarUrlDisplay');
       if (!display) return;
@@ -437,6 +452,13 @@
   }
 
   function regenerateRadarToken() { post({ action: 'radar-regenerate-token' }); }
+
+  function onRadarRequireCodeChange() {
+    post({
+      action: 'radar-require-code',
+      isChecked: document.getElementById('radarRequireCode').checked
+    });
+  }
 
   // ── 버전 ───────────────────────────────────────────────
   function setCurrentVersion(version) {

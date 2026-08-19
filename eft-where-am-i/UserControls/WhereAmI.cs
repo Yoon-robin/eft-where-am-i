@@ -901,7 +901,7 @@ namespace eft_where_am_i
             {
                 try
                 {
-                    radarServer.Start(appSettings.mobile_radar_port, appSettings.mobile_radar_token);
+                    radarServer.Start(appSettings.mobile_radar_port, appSettings.mobile_radar_token, appSettings.mobile_radar_require_code);
                     radarCaptureTimer?.Start();
                 }
                 catch (Exception ex)

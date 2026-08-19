@@ -252,6 +252,21 @@ namespace eft_where_am_i
                         }
                         break;
 
+                    case "radar-require-code":
+                        appSettings.mobile_radar_require_code = message["isChecked"]?.Value<bool>() ?? false;
+                        if (appSettings.mobile_radar_require_code
+                            && string.IsNullOrWhiteSpace(appSettings.mobile_radar_token))
+                        {
+                            appSettings.mobile_radar_token = MobileRadarServer.GenerateToken();
+                        }
+                        SaveSettings();
+                        PushRadarInfo();
+                        MessageBox.Show(
+                            "모바일 레이더를 껐다 켜면 적용됩니다.\n\nToggle Mobile Radar off and on to apply.",
+                            "모바일 레이더 / Mobile Radar",
+                            MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        break;
+
                     case "radar-regenerate-token":
                         appSettings.mobile_radar_token = MobileRadarServer.GenerateToken();
                         SaveSettings();
@@ -341,12 +356,13 @@ namespace eft_where_am_i
             if (webView2_Settings.CoreWebView2 == null) return;
 
             string host = MobileRadarServer.GetLocalAddresses().FirstOrDefault();
-            string url = string.IsNullOrEmpty(host) || string.IsNullOrWhiteSpace(appSettings.mobile_radar_token)
-                ? string.Empty
-                : $"http://{host}:{appSettings.mobile_radar_port}/{appSettings.mobile_radar_token}/";
+            string url = MobileRadarServer.BuildUrl(
+                host, appSettings.mobile_radar_port,
+                appSettings.mobile_radar_token, appSettings.mobile_radar_require_code);
 
             _ = webView2_Settings.ExecuteScriptAsync(
-                $"setRadarInfo({appSettings.mobile_radar_port}, {JavaScriptExecutor.JsLiteral(url)})");
+                $"setRadarInfo({appSettings.mobile_radar_port}, {JavaScriptExecutor.JsLiteral(url)}, " +
+                $"{appSettings.mobile_radar_require_code.ToString().ToLower()})");
         }
 
         private void LoadSettings()

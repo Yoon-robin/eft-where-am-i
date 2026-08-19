@@ -64,5 +64,6 @@
   "radarSectionTitle": "Mobile Radar",
   "radarPortText": "Port",
   "radarHelpText": "View the map on your phone over the same network. Windows Firewall will ask for permission the first time.",
-  "radarRegenerateButton": "New access code"
+  "radarRegenerateButton": "New access code",
+  "radarRequireCodeLabel": "Require access code"
 }

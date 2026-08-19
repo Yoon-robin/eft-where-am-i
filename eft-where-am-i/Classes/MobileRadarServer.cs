@@ -41,8 +41,15 @@ namespace eft_where_am_i.Classes
 
         public int Port { get; private set; } = DefaultPort;
 
-        /// <summary>URL 에 들어가는 접근 토큰. 같은 네트워크의 아무나 들여다보는 걸 막습니다.</summary>
+        /// <summary>URL 에 들어가는 접근 코드. 꺼두면 IP 주소로 바로 접속합니다.</summary>
         public string Token { get; private set; } = string.Empty;
+
+        /// <summary>
+        /// 접근 코드를 요구할지 여부.
+        /// 끄면 http://192.168.x.x:8787/ 로 바로 들어갈 수 있어 폰에서 입력이 편합니다.
+        /// 대신 같은 네트워크에 있는 사람은 누구나 화면을 볼 수 있습니다.
+        /// </summary>
+        public bool RequireToken { get; private set; }
 
         public bool IsRunning { get; private set; }
 
@@ -61,13 +68,14 @@ namespace eft_where_am_i.Classes
             }
         }
 
-        public void Start(int port, string token)
+        public void Start(int port, string token, bool requireToken)
         {
             lock (_gate)
             {
                 if (_disposed || IsRunning) return;
 
                 Port = port <= 0 || port > 65535 ? DefaultPort : port;
+                RequireToken = requireToken;
                 Token = string.IsNullOrWhiteSpace(token) ? GenerateToken() : token.Trim();
 
                 try
@@ -88,6 +96,85 @@ namespace eft_where_am_i.Classes
 
             _ = Task.Run(() => AcceptLoopAsync(_cts.Token));
             AppLogger.Info("Radar", $"모바일 레이더 시작: {GetPrimaryUrl()}");
+
+            // 방화벽이 막고 있으면 서버는 멀쩡히 떠도 폰에서 접속되지 않습니다.
+            // 원인을 찾기 어려운 상황이라 시작할 때 미리 확인해 둡니다.
+            _ = Task.Run(CheckFirewallAsync);
+        }
+
+        /// <summary>
+        /// 이 포트를 허용하는 인바운드 방화벽 규칙이 있는지 확인합니다.
+        /// 규칙이 없으면 폰에서 접속이 안 되므로 로그에 해결 방법을 남깁니다.
+        /// </summary>
+        private async Task CheckFirewallAsync()
+        {
+            try
+            {
+                bool allowed = await Task.Run(() => HasInboundRule(Port));
+                if (allowed)
+                {
+                    AppLogger.Debug("Radar", $"포트 {Port} 인바운드 방화벽 규칙을 확인했습니다.");
+                    return;
+                }
+
+                FirewallRuleMissing = true;
+                AppLogger.Warn("Radar",
+                    $"포트 {Port} 을 허용하는 방화벽 규칙이 없습니다. 폰에서 접속되지 않을 수 있습니다. " +
+                    $"관리자 PowerShell 에서 다음을 실행하세요: {GetFirewallCommand()}");
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Debug("Radar", $"방화벽 확인 실패: {ex.Message}");
+            }
+        }
+
+        /// <summary>방화벽 규칙이 없어 보이면 true. UI 안내에 씁니다.</summary>
+        public bool FirewallRuleMissing { get; private set; }
+
+        /// <summary>사용자가 관리자 권한으로 실행하면 되는 방화벽 등록 명령.</summary>
+        public string GetFirewallCommand()
+        {
+            return $"New-NetFirewallRule -DisplayName \"EFT Where Am I - Mobile Radar\" " +
+                   $"-Direction Inbound -Action Allow -Protocol TCP -LocalPort {Port} " +
+                   $"-Profile Private -RemoteAddress LocalSubnet";
+        }
+
+        private static bool HasInboundRule(int port)
+        {
+            // netsh 출력에서 해당 포트를 허용하는 인바운드 규칙을 찾습니다.
+            // COM 인터롭(NetFwTypeLib)보다 의존성이 적고 권한도 필요 없습니다.
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "netsh",
+                Arguments = "advfirewall firewall show rule name=all dir=in",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+
+            using var process = System.Diagnostics.Process.Start(psi);
+            if (process == null) return true;   // 확인 불가 시 경고하지 않음
+
+            string output = process.StandardOutput.ReadToEnd();
+            if (!process.WaitForExit(8000)) return true;
+
+            // 규칙 블록 단위로 끊어서, 허용(Allow)이면서 해당 포트를 담은 블록을 찾습니다.
+            string portToken = port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            foreach (var block in output.Split(new[] { "\r\n\r\n", "\n\n" }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (block.IndexOf(portToken, StringComparison.Ordinal) < 0) continue;
+
+                // 로케일에 따라 Allow / 허용 으로 표시됩니다.
+                bool isAllow = block.IndexOf("Allow", StringComparison.OrdinalIgnoreCase) >= 0
+                            || block.Contains("허용");
+                bool isEnabled = block.IndexOf("Yes", StringComparison.OrdinalIgnoreCase) >= 0
+                              || block.Contains("예");
+
+                if (isAllow && isEnabled) return true;
+            }
+
+            return false;
         }
 
         public void Stop()
@@ -137,12 +224,22 @@ namespace eft_where_am_i.Classes
         public string GetPrimaryUrl()
         {
             string host = GetLocalAddresses().FirstOrDefault() ?? "localhost";
-            return $"http://{host}:{Port}/{Token}/";
+            return BuildUrl(host, Port, Token, RequireToken);
         }
 
         public IReadOnlyList<string> GetAllUrls()
         {
-            return GetLocalAddresses().Select(ip => $"http://{ip}:{Port}/{Token}/").ToList();
+            return GetLocalAddresses().Select(ip => BuildUrl(ip, Port, Token, RequireToken)).ToList();
+        }
+
+        /// <summary>서버가 꺼져 있을 때도 설정값만으로 주소를 만들 수 있게 합니다. (설정 화면용)</summary>
+        public static string BuildUrl(string host, int port, string token, bool requireToken)
+        {
+            if (string.IsNullOrWhiteSpace(host)) return string.Empty;
+
+            return requireToken && !string.IsNullOrWhiteSpace(token)
+                ? $"http://{host}:{port}/{token}/"
+                : $"http://{host}:{port}/";
         }
 
         /// <summary>
@@ -291,6 +388,17 @@ namespace eft_where_am_i.Classes
                 ? Array.Empty<string>()
                 : path.Split('/', StringSplitOptions.RemoveEmptyEntries);
 
+            string resource;
+
+            if (!RequireToken)
+            {
+                // 접근 코드를 쓰지 않는 경우: /  ->  페이지,  /frame.jpg  ->  화면
+                TouchClient();
+                resource = segments.Length > 0 ? segments[0].ToLowerInvariant() : string.Empty;
+                await ServeResourceAsync(stream, resource, token);
+                return;
+            }
+
             if (segments.Length == 0)
             {
                 await WriteSimpleAsync(stream, 404, "text/html; charset=utf-8",
@@ -319,8 +427,12 @@ namespace eft_where_am_i.Classes
 
             TouchClient();
 
-            string resource = segments.Length > 1 ? segments[1].ToLowerInvariant() : string.Empty;
+            resource = segments.Length > 1 ? segments[1].ToLowerInvariant() : string.Empty;
+            await ServeResourceAsync(stream, resource, token);
+        }
 
+        private async Task ServeResourceAsync(NetworkStream stream, string resource, CancellationToken token)
+        {
             switch (resource)
             {
                 case "":
@@ -333,6 +445,10 @@ namespace eft_where_am_i.Classes
 
                 case "status":
                     await ServeStatusAsync(stream, token);
+                    break;
+
+                case "favicon.ico":
+                    await WriteSimpleAsync(stream, 404, "text/plain; charset=utf-8", "", token);
                     break;
 
                 default:

@@ -473,6 +473,12 @@ namespace eft_where_am_i.Classes
         /// <summary>URL 에 들어가는 접근 코드. 한 번 정해지면 폰의 북마크가 계속 유효하도록 유지합니다.</summary>
         public string mobile_radar_token { get; set; } = string.Empty;
 
+        /// <summary>
+        /// 접근 코드를 요구할지 여부. 기본값은 끔이라 IP 주소로 바로 들어갈 수 있습니다.
+        /// 켜면 주소 뒤에 코드가 붙어 같은 네트워크의 타인이 함부로 볼 수 없습니다.
+        /// </summary>
+        public bool mobile_radar_require_code { get; set; } = false;
+
         [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
         public Dictionary<string, bool> panel_hidden_per_map { get; set; } = new Dictionary<string, bool>();
 
