@@ -756,6 +756,19 @@ namespace eft_where_am_i
             string screenshot = GetLatestFile();
             if (screenshot == null) return;
 
+            string filenameWithoutExt = Path.GetFileNameWithoutExtension(screenshot);
+
+            // 레이드 밖(메뉴·은신처)에서 찍힌 스크린샷에는 좌표가 없습니다.
+            //   레이드 중: 2026-08-19[12-09]_15.59, 1.59, -26.57_-0.02928, ..._13.89 (0)
+            //   메뉴:      2026-08-19[12-21]_13.89 (0)
+            // 이런 이름을 그대로 입력창에 넣으면 마커가 사라지므로 아예 건너뜁니다.
+            // (자동 촬영을 켜두면 메뉴에서도 계속 찍히기 때문에 꼭 걸러야 합니다)
+            if (!ScreenshotCoordinates.TryParse(filenameWithoutExt, out var coords))
+            {
+                AppLogger.Debug("WhereAmI", $"좌표가 없는 스크린샷이라 건너뜁니다: {filenameWithoutExt}");
+                return;
+            }
+
             if (!await jsExecutor.CheckInputAble())
             {
                 whereAmIClick = true;
@@ -763,11 +776,10 @@ namespace eft_where_am_i
                 await Task.Delay(500);
             }
 
-            string filenameWithoutExt = Path.GetFileNameWithoutExtension(screenshot);
             await jsExecutor.SetInputValueAsync("input[type=\"text\"]", filenameWithoutExt);
 
-            // 좌표 파싱 후 자동 층 전환
-            await AutoSwitchFloorAsync(filenameWithoutExt);
+            // 자동 층 전환
+            await AutoSwitchFloorAsync(coords);
 
             // 마커 렌더링 대기 후 데드존 auto-pan (설정이 활성화된 경우에만)
             if (appSettings.auto_panning)
@@ -979,18 +991,12 @@ namespace eft_where_am_i
         /// 그리고 zone.polygon 은 게임 좌표가 아니라 <b>맵 CSS 픽셀 좌표</b>라서
         /// 폴리곤 판정은 마커 위치를 아는 브라우저(<c>__detectFloor</c>)에 위임합니다.
         /// </summary>
-        private async Task AutoSwitchFloorAsync(string filename)
+        private async Task AutoSwitchFloorAsync(ScreenshotCoordinates.Coordinates coords)
         {
             if (floorManager == null || jsExecutor == null) return;
 
             try
             {
-                if (!ScreenshotCoordinates.TryParse(filename, out var coords))
-                {
-                    AppLogger.Debug("Floor", $"좌표를 파싱하지 못했습니다: {filename}");
-                    return;
-                }
-
                 string mapName = appSettings.latest_map;
                 string floorName;
 

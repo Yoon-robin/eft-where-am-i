@@ -79,4 +79,25 @@ public class ScreenshotCoordinatesTests
             CultureInfo.CurrentCulture = original;
         }
     }
+
+    [Fact]
+    public void 레이드_밖에서_찍힌_스크린샷은_좌표가_없어_실패한다()
+    {
+        // 메뉴나 은신처에서 찍으면 EFT 는 좌표 없이 날짜와 속도만 적습니다.
+        // 이걸 tarkov-market 입력창에 넣으면 마커가 사라지므로 반드시 걸러야 합니다.
+        //   레이드 중: 2026-08-19[12-09]_15.59, 1.59, -26.57_-0.02928, ..._13.89 (0)
+        //   메뉴:      2026-08-19[12-21]_13.89 (0)
+        Assert.False(ScreenshotCoordinates.TryParse("2026-08-19[12-21]_13.89 (0)", out _));
+    }
+
+    [Fact]
+    public void 레이드_중_스크린샷은_정상_파싱된다()
+    {
+        const string inRaid = "2026-08-19[12-09]_15.59, 1.59, -26.57_-0.02928, -0.81803, 0.04142, -0.57293_13.89 (0)";
+
+        Assert.True(ScreenshotCoordinates.TryParse(inRaid, out var coords));
+        Assert.Equal(15.59, coords.X, precision: 2);
+        Assert.Equal(1.59, coords.Height, precision: 2);
+        Assert.Equal(-26.57, coords.Z, precision: 2);
+    }
 }
